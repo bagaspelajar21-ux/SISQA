@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+
+@source '../views/**/*.blade.php';
+@source '../js/**/*.vue';
+@source '../js/**/*.js';
+
+@theme {
+    --color-sisqa-blue: #2563EB;
+    --color-sisqa-dark: #091633;
+}
+
+/* Base Corporate Skyline UI Enhancements */
+body {
+    background-color: #eef4fb;
+    color: #0f172a;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Smooth modern transitions on interactive controls */
+button, a, select, input, textarea {
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Glassmorphic Card Surface Refinement inside Main Workspace */
+main .bg-white {
+    background-color: rgba(255, 255, 255, 0.93);
+    border-color: rgba(186, 230, 253, 0.65);
+    box-shadow: 0 10px 30px -12px rgba(15, 36, 71, 0.08);
+}
+
+/* Modern Inputs & Selects */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+    box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.03);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+select:focus,
+textarea:focus {
+    border-color: #0284c7;
+    box-shadow: 0 0 0 3px rgb(56 189 248 / 0.18);
+    outline: none;
+}
+
+/* Modern Table Refinements Matching Corporate Skyline Theme */
+table thead tr {
+    background: linear-gradient(to right, rgba(240, 249, 255, 0.9), rgba(224, 242, 254, 0.55));
+}
+
+table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+table tbody tr:hover {
+    background-color: rgba(240, 249, 255, 0.65);
+}
+
+/* Custom sleek scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #e2e8f0;
+}
+::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
