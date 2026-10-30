@@ -1,2 +1,0 @@
-# SISQA
-Aplikasi Untuk QA
