@@ -1,24 +1,24 @@
 <template>
   <section
     v-if="!isAdmin && status?.locked"
-    class="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-950"
+    class="flex items-start gap-4 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-950 shadow-sm sm:px-6 sm:py-5"
     aria-live="polite"
   >
-    <span class="text-base">🔒</span>
-    <div class="space-y-1">
-      <p class="font-extrabold">QA untuk modul ini sedang terkunci.</p>
+    <span class="mt-0.5 text-xl sm:text-2xl">🔒</span>
+    <div class="space-y-1.5">
+      <p class="text-base font-extrabold sm:text-lg">QA untuk modul ini sedang terkunci.</p>
       <p v-if="status.schedule_code" class="leading-relaxed">
         Jadwal {{ status.schedule_code }} telah berakhir.
       </p>
-      <p v-if="remainingSeconds !== null" class="font-semibold tabular-nums">
+      <p v-if="remainingSeconds !== null" class="font-semibold leading-relaxed tabular-nums">
         Akses dibuka otomatis dalam {{ formattedRemaining }}.
       </p>
-      <p v-else-if="status.waiting_for_schedule" class="leading-relaxed">
+      <p v-else-if="status.waiting_for_schedule" class="max-w-3xl leading-relaxed">
         Akses dibuka saat jadwal QA berikutnya pada modul ini dimulai. Menunggu Admin menetapkan jadwal.
       </p>
     </div>
   </section>
-  <p v-else-if="errorMessage && moduleId" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">
+  <p v-else-if="errorMessage && moduleId" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
     {{ errorMessage }}
   </p>
 </template>

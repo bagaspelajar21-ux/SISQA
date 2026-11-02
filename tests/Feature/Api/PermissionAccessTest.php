@@ -92,6 +92,174 @@ class PermissionAccessTest extends TestCase
             ->assertJsonPath('message', 'Akses ke fitur ini tidak diberikan oleh Administrator.');
     }
 
+    public function test_user_with_only_test_case_add_permission_cannot_edit_or_delete(): void
+    {
+        $application = Application::create([
+            'name' => 'Aplikasi Izin Test',
+            'code' => 'APP-TEST-ACTIONS',
+        ]);
+        $user = User::factory()->create();
+        RolePermissionService::saveSingleUserPermissions(
+            $user->id,
+            ['/test-cases'],
+            ['add_test'],
+        );
+        Sanctum::actingAs($user);
+
+        $createResponse = $this->postJson('/api/test-cases', [
+            'title' => 'Test case izin tombol',
+            'application_id' => $application->id,
+            'expected_result' => 'Hasil sesuai.',
+            'priority' => 'Medium',
+        ])->assertCreated();
+        $testCaseId = $createResponse->json('test_case.id');
+
+        $this->putJson("/api/test-cases/{$testCaseId}", [
+            'title' => 'Test case diubah',
+            'application_id' => $application->id,
+            'expected_result' => 'Hasil sesuai.',
+            'priority' => 'Medium',
+        ])->assertForbidden();
+
+        $this->deleteJson("/api/test-cases/{$testCaseId}")->assertForbidden();
+
+        $this->assertDatabaseHas('test_cases', [
+            'id' => $testCaseId,
+            'title' => 'Test case izin tombol',
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_user_with_only_schedule_add_permission_cannot_edit_or_delete(): void
+    {
+        $application = Application::create([
+            'name' => 'Aplikasi Izin Jadwal',
+            'code' => 'APP-SCHEDULE-ACTIONS',
+        ]);
+        $user = User::factory()->create();
+        RolePermissionService::saveSingleUserPermissions(
+            $user->id,
+            ['/schedules'],
+            ['add_schedule'],
+        );
+        Sanctum::actingAs($user);
+
+        $createResponse = $this->postJson('/api/schedules', [
+            'title' => 'Jadwal QA izin tombol',
+            'application_id' => $application->id,
+            'testing_type' => 'Daily',
+            'start_time' => now()->addHour()->toDateTimeString(),
+            'end_time' => now()->addHours(2)->toDateTimeString(),
+            'priority' => 'Medium',
+        ])->assertCreated();
+        $scheduleId = $createResponse->json('schedule.id');
+
+        $this->putJson("/api/schedules/{$scheduleId}", [
+            'title' => 'Jadwal diubah',
+        ])->assertForbidden();
+        $this->deleteJson("/api/schedules/{$scheduleId}")->assertForbidden();
+
+        $this->assertDatabaseHas('qa_schedules', [
+            'id' => $scheduleId,
+            'title' => 'Jadwal QA izin tombol',
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_user_with_only_bug_add_permission_cannot_edit_or_delete(): void
+    {
+        $application = Application::create([
+            'name' => 'Aplikasi Izin Bug',
+            'code' => 'APP-BUG-ACTIONS',
+        ]);
+        $user = User::factory()->create();
+        RolePermissionService::saveSingleUserPermissions(
+            $user->id,
+            ['/bugs'],
+            ['create_bug'],
+        );
+        Sanctum::actingAs($user);
+
+        $createResponse = $this->postJson('/api/bugs', [
+            'title' => 'Bug izin tombol',
+            'application_id' => $application->id,
+            'description' => 'Deskripsi bug.',
+            'severity' => 'Minor',
+            'priority' => 'Medium',
+            'assignee_id' => null,
+        ])->assertCreated();
+        $bugId = $createResponse->json('bug.id');
+
+        $this->putJson("/api/bugs/{$bugId}", [
+            'title' => 'Bug diubah',
+        ])->assertForbidden();
+        $this->deleteJson("/api/bugs/{$bugId}")->assertForbidden();
+
+        $this->assertDatabaseHas('bugs', [
+            'id' => $bugId,
+            'title' => 'Bug izin tombol',
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_user_with_only_flow_add_permission_cannot_edit_or_delete(): void
+    {
+        $application = Application::create([
+            'name' => 'Aplikasi Izin Flow',
+            'code' => 'APP-FLOW-ACTIONS',
+        ]);
+        $user = User::factory()->create();
+        RolePermissionService::saveSingleUserPermissions(
+            $user->id,
+            ['/flows'],
+            ['add_flow'],
+        );
+        Sanctum::actingAs($user);
+
+        $createResponse = $this->postJson('/api/flows', [
+            'title' => 'Flow izin tombol',
+            'application_id' => $application->id,
+            'status' => 'Draft',
+        ])->assertCreated();
+        $flowId = $createResponse->json('flow.id');
+
+        $this->putJson("/api/flows/{$flowId}", [
+            'title' => 'Flow diubah',
+        ])->assertForbidden();
+        $this->deleteJson("/api/flows/{$flowId}")->assertForbidden();
+
+        $this->assertDatabaseHas('application_flows', [
+            'id' => $flowId,
+            'title' => 'Flow izin tombol',
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_legacy_grouped_features_expand_to_separate_action_permissions(): void
+    {
+        $user = User::factory()->create();
+
+        RolePermissionService::saveSingleUserPermissions($user->id, ['/test-cases'], [
+            'create_schedule',
+            'create_test',
+            'edit_bug',
+            'manage_flow',
+        ]);
+        $permissions = RolePermissionService::getPermissionsForUser($user);
+
+        $this->assertContains('add_schedule', $permissions['features']);
+        $this->assertContains('update_schedule', $permissions['features']);
+        $this->assertContains('delete_schedule', $permissions['features']);
+        $this->assertContains('add_test', $permissions['features']);
+        $this->assertContains('update_test', $permissions['features']);
+        $this->assertContains('delete_test', $permissions['features']);
+        $this->assertContains('update_bug', $permissions['features']);
+        $this->assertContains('delete_bug', $permissions['features']);
+        $this->assertContains('add_flow', $permissions['features']);
+        $this->assertContains('update_flow', $permissions['features']);
+        $this->assertContains('delete_flow', $permissions['features']);
+    }
+
     public function test_returns_403_when_user_uses_write_and_export_features_not_granted_by_admin(): void
     {
         $user = User::factory()->create();

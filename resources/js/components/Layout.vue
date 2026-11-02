@@ -616,13 +616,13 @@
         @click.self="showDailyMotivation = false"
       >
         <section
-          class="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-blue-300/60 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-1 shadow-[0_30px_100px_-20px_rgba(29,78,216,0.8)]"
+          class="relative max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-blue-300/60 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-1 shadow-[0_30px_100px_-20px_rgba(29,78,216,0.8)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="daily-motivation-title"
         >
-          <div class="relative overflow-hidden rounded-[1.8rem] bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 px-6 pb-6 pt-5 text-white sm:px-8 sm:pb-8">
-            <div class="pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full border-[18px] border-white/10"></div>
+          <div class="relative overflow-hidden rounded-[1.8rem] bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 px-6 pb-6 pt-6 text-white sm:px-10 sm:pb-10 sm:pt-8">
+            <div class="pointer-events-none absolute -right-10 -top-12 h-56 w-56 rounded-full border-[22px] border-white/10"></div>
             <div class="pointer-events-none absolute -bottom-16 -left-12 h-48 w-48 rounded-full bg-cyan-300/15 blur-2xl"></div>
             <div class="relative z-10 flex items-start justify-between gap-4">
               <div>
@@ -630,13 +630,13 @@
                   <span class="h-2 w-2 rounded-full bg-amber-300"></span>
                   Semangat hari ini
                 </span>
-                <h2 id="daily-motivation-title" class="mt-4 text-xl font-black leading-tight sm:text-2xl">
+                <h2 id="daily-motivation-title" class="mt-5 text-2xl font-black leading-tight sm:text-3xl">
                   Halo, {{ currentUser?.name?.split(' ')?.[0] || 'QA' }}!
                 </h2>
               </div>
               <button
                 type="button"
-                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-lg text-white transition hover:bg-white/20"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-xl text-white transition hover:bg-white/20"
                 aria-label="Tutup motivasi harian"
                 @click="showDailyMotivation = false"
               >
@@ -644,31 +644,31 @@
               </button>
             </div>
 
-            <div class="relative z-10 mt-6 overflow-hidden rounded-2xl border border-blue-100 bg-[#fff9ed] text-center text-blue-950 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.6)]">
+            <div class="relative z-10 mt-7 overflow-hidden rounded-3xl border border-blue-100 bg-[#fff9ed] text-center text-blue-950 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.6)]">
               <img
                 v-if="dailyMotivation.imageUrl"
                 :src="dailyMotivation.imageUrl"
                 alt="Desain motivasi harian"
-                class="max-h-56 w-full bg-blue-50 object-cover"
+                class="max-h-72 w-full bg-blue-50 object-cover sm:max-h-80"
               />
-              <div class="px-5 py-5 sm:px-6 sm:py-6">
-                <div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-100 text-2xl text-blue-700">
+              <div class="px-6 py-7 sm:px-10 sm:py-9">
+                <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-3xl text-blue-700">
                   “
                 </div>
-                <p class="text-base font-extrabold leading-relaxed sm:text-lg">
+                <p class="text-lg font-extrabold leading-relaxed sm:text-2xl">
                   {{ dailyMotivation.message }}
                 </p>
-                <p class="mt-4 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700/70">
+                <p class="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-blue-700/70 sm:text-sm">
                   {{ dailyMotivation.date }}
                 </p>
               </div>
             </div>
 
-            <div class="relative z-10 mt-5 flex items-center justify-between gap-3">
-              <span class="text-[10px] font-semibold text-blue-100/80">Satu langkah QA hari ini, kualitas lebih baik esok.</span>
+            <div class="relative z-10 mt-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+              <span class="text-xs font-semibold leading-relaxed text-blue-100/80 sm:text-sm">Satu langkah QA hari ini, kualitas lebih baik esok.</span>
               <button
                 type="button"
-                class="shrink-0 rounded-xl bg-white px-4 py-2.5 text-xs font-extrabold text-blue-800 shadow-lg transition hover:bg-blue-50"
+                class="shrink-0 rounded-xl bg-white px-5 py-3 text-sm font-extrabold text-blue-800 shadow-lg transition hover:bg-blue-50"
                 @click="showDailyMotivation = false"
               >
                 Mulai bekerja

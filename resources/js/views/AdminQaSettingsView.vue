@@ -65,60 +65,64 @@
         </div>
       </section>
 
-      <section class="space-y-4 rounded-2xl border border-amber-200 bg-white p-5 shadow-xs">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+      <section class="space-y-5 rounded-2xl border border-amber-200 bg-white p-5 shadow-xs sm:p-6">
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div class="min-w-0">
             <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-900">Kartu motivasi saat login</h3>
-            <p class="mt-1 text-[11px] text-slate-500">
+            <p class="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
               Kutipan berganti berdasarkan tanggal WIB dan muncul setiap kali pengguna login.
             </p>
           </div>
-          <label class="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">
+          <label class="inline-flex w-fit items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-bold text-amber-900">
             <input v-model="settings.daily_motivation_enabled" type="checkbox" class="h-4 w-4 accent-amber-600" />
             Aktifkan kartu motivasi
           </label>
-
-          <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-            <label class="block text-[11px] font-bold text-slate-600">
-              Gambar desain motivasi
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                :disabled="loading || imageUploading || !settings.daily_motivation_enabled"
-                class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-normal text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-100 file:px-3 file:py-1.5 file:text-[11px] file:font-bold file:text-blue-800"
-                @change="uploadImage"
-              />
-              <span class="mt-1 block font-normal text-slate-500">PNG, JPG, atau WEBP, maksimal 5 MB.</span>
-            </label>
-            <button
-              v-if="imagePreview"
-              type="button"
-              :disabled="imageUploading"
-              class="rounded-xl border border-rose-200 px-4 py-2 text-[11px] font-bold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
-              @click="deleteImage"
-            >
-              Hapus gambar
-            </button>
-          </div>
-          <img
-            v-if="imagePreview"
-            :src="imagePreview"
-            alt="Pratinjau gambar motivasi harian"
-            class="max-h-64 w-full rounded-2xl border border-slate-200 bg-slate-50 object-contain"
-          />
         </div>
 
-        <label class="block text-[11px] font-bold text-slate-600">
-          Daftar kutipan harian
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <label class="block min-w-0 text-xs font-bold text-slate-600">
+            Gambar desain motivasi
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              :disabled="loading || imageUploading || !settings.daily_motivation_enabled"
+              class="mt-2 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-normal text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-blue-800"
+              @change="uploadImage"
+            />
+            <span class="mt-1.5 block font-normal leading-relaxed text-slate-500">PNG, JPG, atau WEBP, maksimal 5 MB.</span>
+          </label>
+          <button
+            v-if="imagePreview"
+            type="button"
+            :disabled="imageUploading"
+            class="justify-self-start rounded-xl border border-rose-200 px-4 py-2.5 text-xs font-bold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50 lg:justify-self-end"
+            @click="deleteImage"
+          >
+            Hapus gambar
+          </button>
+        </div>
+
+        <img
+          v-if="imagePreview"
+          :src="imagePreview"
+          alt="Pratinjau gambar motivasi harian"
+          class="max-h-64 w-full rounded-2xl border border-slate-200 bg-slate-50 object-contain p-2"
+        />
+
+        <label class="block text-xs font-bold text-slate-700">
+          Daftar deskripsi motivasi
+          <span class="mt-1 block font-normal leading-relaxed text-slate-500">
+            Tulis satu kutipan pada setiap baris. Kutipan akan ditampilkan bergantian pada kartu motivasi.
+          </span>
           <textarea
             v-model="quotesText"
-            rows="7"
+            rows="9"
             maxlength="50000"
             :disabled="loading || !settings.daily_motivation_enabled"
-            class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-xs font-normal text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+            class="mt-3 min-h-56 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm font-normal leading-7 text-slate-800 focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/15 disabled:cursor-not-allowed disabled:opacity-60"
             placeholder="Tulis satu kutipan pada setiap baris"
           ></textarea>
-          <span class="mt-1 block font-normal text-slate-500">
+          <span class="mt-2 block font-normal leading-relaxed text-slate-500">
             Satu kutipan per baris, maksimal 100 kutipan dan 500 karakter per kutipan.
           </span>
         </label>

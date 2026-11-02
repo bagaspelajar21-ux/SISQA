@@ -247,7 +247,7 @@
                   <!-- Eksekusi Button / Locked if Schedule Expired -->
                   <span
                     v-if="tc.is_schedule_expired && !tc.can_continue_qa"
-                    class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px] cursor-not-allowed select-none"
+                    class="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-extrabold leading-tight text-rose-800 shadow-sm cursor-not-allowed select-none sm:text-sm"
                     :title="`Jadwal QA (${tc.expired_schedule_code || ''}) telah melewati batas waktu (${tc.expired_schedule_end || ''}). Tidak dapat melanjutkan QA.`"
                   >
                     🔒 Jadwal Lewat Waktu
