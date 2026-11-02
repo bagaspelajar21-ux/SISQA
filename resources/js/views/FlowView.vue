@@ -14,7 +14,7 @@
             Unggah langsung file dokumentasi alur aplikasi (<strong>PPT/PPTX, PDF, Gambar JPG/PNG, Word, Excel</strong>) tanpa perlu input satu per satu, lengkap dengan fitur <strong>Preview Langsung di Dalam Sistem</strong>.
           </p>
         </div>
-        <div v-if="isAdmin" class="shrink-0 flex items-center gap-2">
+        <div v-if="hasFeatureAccess('add_flow')" class="shrink-0 flex items-center gap-2">
           <button
             @click="openCreateModal"
             class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-xs font-extrabold text-white shadow-lg shadow-blue-500/30 transition-all flex items-center space-x-2 cursor-pointer"
@@ -100,7 +100,7 @@
                 📎 Berkas Flow Terlampir ({{ flow.files?.length || flow.files_count || 0 }} File)
               </span>
               <label
-                v-if="isAdmin"
+                v-if="hasFeatureAccess('update_flow')"
                 class="text-[11px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer flex items-center gap-1"
                 title="Tambah file langsung ke flow ini"
               >
@@ -141,14 +141,14 @@
               <span>👁️ Preview Flow &amp; File</span>
             </button>
             <button
-              v-if="isAdmin"
+              v-if="hasFeatureAccess('update_flow')"
               @click="openEditModal(flow)"
               class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-semibold cursor-pointer transition-colors"
             >
               Edit
             </button>
             <button
-              v-if="isAdmin"
+              v-if="hasFeatureAccess('delete_flow')"
               @click="confirmDelete(flow)"
               class="px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold cursor-pointer transition-colors"
             >
@@ -399,7 +399,7 @@
             </div>
 
             <label
-              v-if="isAdmin"
+              v-if="hasFeatureAccess('update_flow')"
               class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold cursor-pointer transition-colors shadow-xs"
             >
               + Upload File Baru (PPT / JPG / PDF / Dll)
@@ -437,7 +437,7 @@
                 </div>
               </div>
               <button
-                v-if="isAdmin"
+                v-if="hasFeatureAccess('delete_flow')"
                 type="button"
                 @click.stop="deleteFileFromModal(f)"
                 :class="[
@@ -732,6 +732,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '../api';
 import { useAuth } from '../auth';
+import { showAlert, showConfirm } from '../dialog';
 import { createAuthenticatedFileUrl, downloadAuthenticatedFile } from '../utils/files';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
@@ -740,7 +741,7 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 import FlowDiagram from '../components/FlowDiagram.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
-const { isAdmin } = useAuth();
+const { hasFeatureAccess } = useAuth();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -963,7 +964,7 @@ const openEditModal = async (f) => {
     showManualSteps.value = form.steps.length > 0;
     showFormModal.value = true;
   } catch (e) {
-    alert('Gagal memuat detail flow untuk diedit.');
+    void showAlert('Gagal memuat detail flow untuk diedit.', { title: 'Flow Gagal Dimuat' });
   }
 };
 
@@ -1005,25 +1006,31 @@ const saveFlow = async () => {
     showFormModal.value = false;
     await fetchFlows();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan flow aplikasi.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan flow aplikasi.', { title: 'Flow Gagal Disimpan' });
   } finally {
     saving.value = false;
   }
 };
 
 const deleteExistingFile = async (fileObj) => {
-  if (!confirm(`Hapus berkas '${fileObj.original_name}'?`)) return;
+  if (!await showConfirm(`Hapus berkas '${fileObj.original_name}'?`, {
+    title: 'Hapus Berkas Flow',
+    confirmText: 'Ya, hapus berkas',
+  })) return;
   try {
     await api.delete(`/flows/${currentId.value}/files/${fileObj.id}`);
     existingFiles.value = existingFiles.value.filter((f) => f.id !== fileObj.id);
     fetchFlows();
   } catch (e) {
-    alert('Gagal menghapus berkas.');
+    void showAlert('Gagal menghapus berkas.', { title: 'Berkas Gagal Dihapus' });
   }
 };
 
 const deleteFileFromModal = async (fileObj) => {
-  if (!activeFlow.value || !confirm(`Hapus berkas '${fileObj.original_name}'?`)) return;
+  if (!activeFlow.value || !await showConfirm(`Hapus berkas '${fileObj.original_name}'?`, {
+    title: 'Hapus Berkas Flow',
+    confirmText: 'Ya, hapus berkas',
+  })) return;
   try {
     await api.delete(`/flows/${activeFlow.value.id}/files/${fileObj.id}`);
     const res = await api.get(`/flows/${activeFlow.value.id}`);
@@ -1033,7 +1040,7 @@ const deleteFileFromModal = async (fileObj) => {
     }
     fetchFlows();
   } catch (e) {
-    alert('Gagal menghapus berkas.');
+    void showAlert('Gagal menghapus berkas.', { title: 'Berkas Gagal Dihapus' });
   }
 };
 
@@ -1049,19 +1056,22 @@ const quickUploadToCard = async (e, flow) => {
     await fetchFlows();
     openPreviewModal(flow);
   } catch (err) {
-    alert('Gagal mengunggah berkas ke flow.');
+    void showAlert('Gagal mengunggah berkas ke flow.', { title: 'Unggah Berkas Gagal' });
   } finally {
     e.target.value = '';
   }
 };
 
 const confirmDelete = async (f) => {
-  if (!confirm(`Hapus flow aplikasi '${f.title}' (${f.flow_code})?`)) return;
+  if (!await showConfirm(`Hapus flow aplikasi '${f.title}' (${f.flow_code})?`, {
+    title: 'Hapus Flow Aplikasi',
+    confirmText: 'Ya, hapus flow',
+  })) return;
   try {
     await api.delete(`/flows/${f.id}`);
     fetchFlows();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menghapus flow aplikasi.');
+    void showAlert(e.response?.data?.message || 'Gagal menghapus flow aplikasi.', { title: 'Flow Gagal Dihapus' });
   }
 };
 
@@ -1147,12 +1157,14 @@ const downloadSelectedPreview = async () => {
   try {
     await downloadAuthenticatedFile('flow', selectedPreviewFile.value.id, selectedPreviewFile.value.original_name);
   } catch (error) {
-    alert(error.response?.data?.message || 'Gagal mengunduh berkas flow.');
+    void showAlert(error.response?.data?.message || 'Gagal mengunduh berkas flow.', { title: 'Unduhan Gagal' });
   }
 };
 
 const handleStepClick = (step) => {
-  alert(`Langkah #${step.step_number}: ${step.title}\n\nAktivitas: ${step.activity_description || '-'}\nAktor: ${step.actor || '-'}\nExpected Result: ${step.expected_result || '-'}`);
+  void showAlert(`Langkah #${step.step_number}: ${step.title}\n\nAktivitas: ${step.activity_description || '-'}\nAktor: ${step.actor || '-'}\nExpected Result: ${step.expected_result || '-'}`, {
+    title: 'Detail Langkah Flow',
+  });
 };
 
 const uploadFlowDoc = async (e) => {
@@ -1172,7 +1184,7 @@ const uploadFlowDoc = async (e) => {
     }
     fetchFlows();
   } catch (err) {
-    alert('Gagal mengunggah berkas flow.');
+    void showAlert('Gagal mengunggah berkas flow.', { title: 'Unggah Berkas Gagal' });
   } finally {
     e.target.value = '';
   }

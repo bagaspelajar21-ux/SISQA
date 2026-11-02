@@ -20,6 +20,7 @@ class RetestController extends Controller
         $dateRange = $request->validate([
             'start_date' => ['nullable', 'date_format:Y-m-d'],
             'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+            'module_id' => ['nullable', 'integer', 'exists:application_modules,id'],
         ]);
         $startDate = $dateRange['start_date'] ?? null;
         $endDate = $dateRange['end_date'] ?? null;
@@ -49,6 +50,10 @@ class RetestController extends Controller
             $query->where('application_id', $appId);
         }
 
+        if ($moduleId = $dateRange['module_id'] ?? null) {
+            $query->where('module_id', $moduleId);
+        }
+
         if ($status = $request->input('status')) {
             $query->where('status', $status);
         }
@@ -59,7 +64,10 @@ class RetestController extends Controller
 
         $retests = $query->orderBy('id', 'desc')->paginate($request->input('per_page', 15));
 
-        return response()->json($retests);
+        $response = $retests->toArray();
+        $response['qa_lock_policy'] = $scheduleLock->policySummary();
+
+        return response()->json($response);
     }
 
     public function store(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
@@ -81,7 +89,7 @@ class RetestController extends Controller
 
         if (! $user->isAdmin() && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -170,7 +178,7 @@ class RetestController extends Controller
 
         if ($lockedSchedule !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 

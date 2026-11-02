@@ -18,6 +18,7 @@ class TestExecution extends Model
         'status',
         'actual_result',
         'notes',
+        'feature_description',
         'executed_at',
     ];
 

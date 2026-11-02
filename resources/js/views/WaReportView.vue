@@ -553,6 +553,7 @@ import { ref, reactive, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../api';
 import { useAuth } from '../auth';
+import { showAlert } from '../dialog';
 import { copyTextToClipboard, openWhatsAppMessage } from '../utils/whatsapp';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
@@ -840,7 +841,7 @@ const copyWaText = async () => {
     }, 2500);
   } catch (error) {
     console.error('Copy WA report error:', error);
-    window.alert('Laporan gagal disalin. Silakan coba kembali.');
+    void showAlert('Laporan gagal disalin. Silakan coba kembali.', { title: 'Gagal Menyalin Laporan' });
   }
 };
 

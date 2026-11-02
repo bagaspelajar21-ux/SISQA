@@ -87,6 +87,29 @@
           ></span>
         </router-link>
 
+        <div v-if="visibleMasterApplicationMenus.length > 0" class="pt-4 space-y-1.5">
+          <div v-if="!sidebarCollapsed" class="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-sky-300/50">
+            Sub-Menu Aplikasi
+          </div>
+          <a
+            v-for="menu in visibleMasterApplicationMenus"
+            :key="menu.key"
+            :href="menu.href"
+            :target="menu.isExternal ? '_blank' : undefined"
+            :rel="menu.isExternal ? 'noopener noreferrer' : undefined"
+            class="flex items-center rounded-2xl border border-transparent px-2.5 py-2 text-xs font-semibold text-slate-300/85 transition-all hover:border-sky-400/15 hover:bg-white/8 hover:text-white"
+            :title="sidebarCollapsed ? `${menu.application_name} / ${menu.module_name} / ${menu.name}` : ''"
+          >
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-sky-400/15 bg-slate-900/60 text-sky-400 transition-all group-hover:border-sky-400/30 group-hover:bg-sky-500/20 group-hover:text-sky-300">
+              <ModernIcon name="master-menus" size="md" />
+            </span>
+            <span v-if="!sidebarCollapsed" class="ml-3 min-w-0 truncate">
+              <span class="block truncate">{{ menu.name }}</span>
+              <span class="block truncate text-[9px] font-medium text-slate-400">{{ menu.application_name }} · {{ menu.module_name }}</span>
+            </span>
+          </a>
+        </div>
+
         <!-- Admin & Authorized Master Data Section -->
         <div v-if="isAdmin || visibleMasterSubItems.length > 0" class="pt-4 space-y-1.5">
           <div v-if="!sidebarCollapsed" class="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-sky-300/50">
@@ -199,9 +222,10 @@
         <div class="flex items-center justify-between">
           <router-link to="/profile" class="flex items-center space-x-3 truncate group">
             <div class="relative shrink-0">
-              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white font-extrabold flex items-center justify-center text-xs shadow-sm ring-1 ring-white/20">
+              <div v-if="!currentUser?.profile_photo_url" class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white font-extrabold flex items-center justify-center text-xs shadow-sm ring-1 ring-white/20">
                 {{ userInitials }}
               </div>
+              <img v-else :src="currentUser.profile_photo_url" :alt="`Foto profil ${currentUser.name}`" class="w-9 h-9 rounded-xl object-cover shadow-sm ring-1 ring-white/20" />
               <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-950"></span>
             </div>
             <div v-if="!sidebarCollapsed" class="truncate text-left">
@@ -583,6 +607,77 @@
       @confirm="executeLogout"
       @cancel="showLogoutConfirm = false"
     />
+
+    <Teleport to="body">
+      <div
+        v-if="showDailyMotivation"
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+        role="presentation"
+        @click.self="showDailyMotivation = false"
+      >
+        <section
+          class="relative max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-blue-300/60 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-1 shadow-[0_30px_100px_-20px_rgba(29,78,216,0.8)]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="daily-motivation-title"
+        >
+          <div class="relative overflow-hidden rounded-[1.8rem] bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 px-6 pb-6 pt-6 text-white sm:px-10 sm:pb-10 sm:pt-8">
+            <div class="pointer-events-none absolute -right-10 -top-12 h-56 w-56 rounded-full border-[22px] border-white/10"></div>
+            <div class="pointer-events-none absolute -bottom-16 -left-12 h-48 w-48 rounded-full bg-cyan-300/15 blur-2xl"></div>
+            <div class="relative z-10 flex items-start justify-between gap-4">
+              <div>
+                <span class="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-100">
+                  <span class="h-2 w-2 rounded-full bg-amber-300"></span>
+                  Semangat hari ini
+                </span>
+                <h2 id="daily-motivation-title" class="mt-5 text-2xl font-black leading-tight sm:text-3xl">
+                  Halo, {{ currentUser?.name?.split(' ')?.[0] || 'QA' }}!
+                </h2>
+              </div>
+              <button
+                type="button"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-xl text-white transition hover:bg-white/20"
+                aria-label="Tutup motivasi harian"
+                @click="showDailyMotivation = false"
+              >
+                ×
+              </button>
+            </div>
+
+            <div class="relative z-10 mt-7 overflow-hidden rounded-3xl border border-blue-100 bg-[#fff9ed] text-center text-blue-950 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.6)]">
+              <img
+                v-if="dailyMotivation.imageUrl"
+                :src="dailyMotivation.imageUrl"
+                alt="Desain motivasi harian"
+                class="max-h-72 w-full bg-blue-50 object-cover sm:max-h-80"
+              />
+              <div class="px-6 py-7 sm:px-10 sm:py-9">
+                <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-3xl text-blue-700">
+                  “
+                </div>
+                <p class="text-lg font-extrabold leading-relaxed sm:text-2xl">
+                  {{ dailyMotivation.message }}
+                </p>
+                <p class="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-blue-700/70 sm:text-sm">
+                  {{ dailyMotivation.date }}
+                </p>
+              </div>
+            </div>
+
+            <div class="relative z-10 mt-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+              <span class="text-xs font-semibold leading-relaxed text-blue-100/80 sm:text-sm">Satu langkah QA hari ini, kualitas lebih baik esok.</span>
+              <button
+                type="button"
+                class="shrink-0 rounded-xl bg-white px-5 py-3 text-sm font-extrabold text-blue-800 shadow-lg transition hover:bg-blue-50"
+                @click="showDailyMotivation = false"
+              >
+                Mulai bekerja
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -591,6 +686,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from '../auth';
 import api from '../api';
+import { showAlert } from '../dialog';
 import Modal from './Modal.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import Badge from './Badge.vue';
@@ -609,6 +705,8 @@ const mobileMenuOpen = ref(false);
 const masterDropdownOpen = ref(true);
 const showGuideModal = ref(false);
 const showLogoutConfirm = ref(false);
+const showDailyMotivation = ref(false);
+const dailyMotivation = ref({ message: '', date: '', imageUrl: null });
 const dbGuide = ref(null);
 
 const toggleSidebar = () => {
@@ -646,7 +744,9 @@ const masterSubItems = [
 
 const adminNavItems = [
   { path: '/users', label: 'Manajemen Pengguna', icon: 'users' },
+  { path: '/admin/work-analysis', label: 'Analisis Pekerjaan', icon: 'reports' },
   { path: '/admin/reminders', label: 'Pengingat & Notifikasi', icon: 'activity-logs' },
+  { path: '/admin/qa-settings', label: 'Pengaturan QA & Motivasi', icon: 'schedules' },
 ];
 
 const currentHeaderIcon = computed(() => {
@@ -666,6 +766,25 @@ const mobileBottomNavItems = computed(() => {
 const visibleMasterSubItems = computed(() => {
   return isAdmin.value ? masterSubItems : [];
 });
+
+const visibleMasterApplicationMenus = computed(() => {
+  const menus = currentUser.value?.permissions?.master_menus || [];
+
+  return menus
+    .map((menu) => {
+      const href = safeMasterMenuHref(menu.url_or_route);
+      return href ? { ...menu, href, isExternal: /^https?:\/\//i.test(href) } : null;
+    })
+    .filter(Boolean);
+});
+
+function safeMasterMenuHref(value) {
+  if (typeof value !== 'string') return '';
+  const href = value.trim();
+  if (/^https?:\/\/\S+$/i.test(href)) return href;
+  if (href.startsWith('/') && !href.startsWith('//')) return href;
+  return '';
+}
 
 const notifications = ref([]);
 const unreadNotificationCount = ref(0);
@@ -784,6 +903,9 @@ const routeMenuMap = {
   '/master/modules': 'Master Modul',
   '/master/menus': 'Master Menu',
   '/users': 'Manajemen Pengguna',
+  '/admin/work-analysis': 'Analisis Pekerjaan',
+  '/admin/reminders': 'Pengingat & Notifikasi',
+  '/admin/qa-settings': 'Pengaturan QA & Motivasi',
   '/profile': 'Profil Saya',
 };
 
@@ -1099,7 +1221,7 @@ const markCurrentGuideObserved = async () => {
     await api.post(`/guides/${activeMenuGuide.value.id}/observe`);
     await fetchGuideForCurrentMenu();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menandai panduan.');
+    void showAlert(e.response?.data?.message || 'Gagal menandai panduan.', { title: 'Panduan Gagal Diperbarui' });
   }
 };
 
@@ -1126,6 +1248,36 @@ const syncPermissionsOnFocus = async () => {
   enforceRoutePermission();
 };
 
+const fetchDailyMotivation = async () => {
+  const token = localStorage.getItem('sisqa_token');
+  if (!token || localStorage.getItem('sisqa_motivation_seen_token') === token) {
+    return;
+  }
+
+  try {
+    const response = await api.get('/daily-motivation/today');
+    if (!response.data.motivation) {
+      return;
+    }
+
+    dailyMotivation.value = {
+      message: response.data.motivation,
+      imageUrl: response.data.image_url,
+      date: new Date(`${response.data.date}T00:00:00+07:00`).toLocaleDateString('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }),
+    };
+    localStorage.setItem('sisqa_motivation_seen_token', token);
+    showDailyMotivation.value = true;
+  } catch (error) {
+    console.error('Daily motivation failed to load:', error);
+  }
+};
+
 watch(
   () => route.path,
   () => {
@@ -1139,6 +1291,7 @@ onMounted(async () => {
   lastAuthSync = Date.now();
   await checkAuth();
   enforceRoutePermission();
+  await fetchDailyMotivation();
   await fetchNotifications();
   notificationPollHandle = window.setInterval(fetchNotifications, 45000);
 });

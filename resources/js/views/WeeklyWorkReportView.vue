@@ -199,6 +199,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import api from '../api';
+import { showConfirm } from '../dialog';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 import { copyTextToClipboard, openWhatsAppMessage } from '../utils/whatsapp';
@@ -364,7 +365,10 @@ async function saveEntry() {
 }
 
 async function deleteEntry(log) {
-  if (!window.confirm('Hapus catatan pekerjaan ini? Catatan yang dihapus tidak dapat dikembalikan.')) {
+  if (!await showConfirm('Hapus catatan pekerjaan ini? Catatan yang dihapus tidak dapat dikembalikan.', {
+    title: 'Hapus Catatan Pekerjaan',
+    confirmText: 'Ya, hapus catatan',
+  })) {
     return;
   }
 

@@ -111,7 +111,10 @@ class BugController extends Controller
             return $bug;
         });
 
-        return response()->json($bugs);
+        $response = $bugs->toArray();
+        $response['qa_lock_policy'] = $scheduleLock->policySummary();
+
+        return response()->json($response);
     }
 
     public function store(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
@@ -151,7 +154,7 @@ class BugController extends Controller
 
         if ($lockedSchedule !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -223,7 +226,7 @@ class BugController extends Controller
         if (! $request->user()->isAdmin()
             && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -285,7 +288,7 @@ class BugController extends Controller
 
         if ($lockedSchedule !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -353,7 +356,7 @@ class BugController extends Controller
 
         if (! $user->isAdmin() && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -396,7 +399,7 @@ class BugController extends Controller
     {
         if (! $request->user()->isAdmin() && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 

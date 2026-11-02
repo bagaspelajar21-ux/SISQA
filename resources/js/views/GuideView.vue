@@ -360,6 +360,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import api from '../api';
 import { useAuth } from '../auth';
+import { showAlert, showConfirm } from '../dialog';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
 import EmptyState from '../components/EmptyState.vue';
@@ -478,7 +479,7 @@ const openEditModal = async (g) => {
     }));
     showFormModal.value = true;
   } catch (e) {
-    alert('Gagal memuat detail panduan untuk diedit.');
+    void showAlert('Gagal memuat detail panduan untuk diedit.', { title: 'Panduan Gagal Dimuat' });
   }
 };
 
@@ -499,27 +500,34 @@ const saveGuide = async () => {
     showFormModal.value = false;
     fetchGuides();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan panduan.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan panduan.', { title: 'Panduan Gagal Disimpan' });
   }
 };
 
 const confirmDelete = async (g) => {
-  if (!confirm(`Hapus panduan '${g.title}'?`)) return;
+  if (!await showConfirm(`Hapus panduan '${g.title}'?`, {
+    title: 'Hapus Panduan',
+    confirmText: 'Ya, hapus panduan',
+  })) return;
   try {
     await api.delete(`/guides/${g.id}`);
     fetchGuides();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menghapus panduan.');
+    void showAlert(e.response?.data?.message || 'Gagal menghapus panduan.', { title: 'Panduan Gagal Dihapus' });
   }
 };
 
 const markAsObserved = async (g) => {
-  if (!confirm(`Tandai panduan '${g.title}' (v${g.version}) sebagai 'Sudah Diamati oleh Admin'?`)) return;
+  if (!await showConfirm(`Tandai panduan '${g.title}' (v${g.version}) sebagai 'Sudah Diamati oleh Admin'?`, {
+    title: 'Tandai Panduan Telah Diamati',
+    confirmText: 'Ya, tandai',
+    variant: 'info',
+  })) return;
   try {
     await api.post(`/guides/${g.id}/observe`);
     fetchGuides();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menandai panduan.');
+    void showAlert(e.response?.data?.message || 'Gagal menandai panduan.', { title: 'Panduan Gagal Diperbarui' });
   }
 };
 

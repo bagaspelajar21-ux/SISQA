@@ -44,6 +44,8 @@
       </div>
     </div>
 
+    <QaLockStatusBanner :module-id="filters.module_id" @unlocked="fetchBugs(1)" />
+
     <!-- Quick Bug Summary Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between">
@@ -93,11 +95,28 @@
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Aplikasi</label>
           <select
             v-model="filters.application_id"
-            @change="fetchBugs"
+            @change="filters.module_id = ''; fetchBugs(1)"
             class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">Semua Aplikasi</option>
             <option v-for="app in apps" :key="app.id" :value="app.id">{{ app.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Modul QA</label>
+          <select
+            v-model="filters.module_id"
+            @change="fetchBugs(1)"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Semua Modul</option>
+            <option
+              v-for="module in filterModuleOptions"
+              :key="module.id"
+              :value="module.id"
+            >
+              {{ applicationName(module.application_id) }} · {{ module.name }}
+            </option>
           </select>
         </div>
         <div>
@@ -239,7 +258,7 @@
                     Detail
                   </button>
                   <button
-                    v-if="hasFeatureAccess('edit_bug') && b.can_manage_qa"
+                    v-if="hasFeatureAccess('update_bug') && b.can_manage_qa"
                     @click="openEditModal(b)"
                     class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Ubah Status / Penugasan"
@@ -247,7 +266,7 @@
                     Edit
                   </button>
                   <button
-                    v-if="hasFeatureAccess('edit_bug') && b.can_manage_qa"
+                    v-if="hasFeatureAccess('delete_bug') && b.can_manage_qa"
                     @click="confirmDelete(b)"
                     class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Hapus Bug"
@@ -692,8 +711,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import api from '../api';
+import { showAlert } from '../dialog';
 import { useAuth } from '../auth';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
@@ -702,6 +722,7 @@ import EmptyState from '../components/EmptyState.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 import { downloadAuthenticatedFile } from '../utils/files';
+import QaLockStatusBanner from '../components/QaLockStatusBanner.vue';
 
 const { hasFeatureAccess } = useAuth();
 
@@ -709,7 +730,7 @@ const downloadBugEvidence = async (evidence) => {
   try {
     await downloadAuthenticatedFile('bug', evidence.id, evidence.original_name);
   } catch (error) {
-    alert(error.response?.data?.message || 'Gagal mengunduh bukti bug.');
+    void showAlert(error.response?.data?.message || 'Gagal mengunduh bukti bug.', { title: 'Unduhan Gagal' });
   }
 };
 
@@ -718,6 +739,7 @@ const saving = ref(false);
 const bugs = ref([]);
 const apps = ref([]);
 const users = ref([]);
+const filterModules = ref([]);
 const createModuleOptions = ref([]);
 const createMenuOptions = ref([]);
 
@@ -731,11 +753,16 @@ const pagination = reactive({
 const filters = reactive({
   search: '',
   application_id: '',
+  module_id: '',
   severity: '',
   status: '',
   start_date: '',
   end_date: '',
 });
+const filterModuleOptions = computed(() => filterModules.value.filter((module) => (
+  !filters.application_id || Number(module.application_id) === Number(filters.application_id)
+)));
+const applicationName = (applicationId) => apps.value.find((app) => Number(app.id) === Number(applicationId))?.name || 'Aplikasi';
 
 const showCreateModal = ref(false);
 const createFiles = ref([]);
@@ -784,7 +811,7 @@ const downloadExcelTemplate = async () => {
     link.click();
     link.remove();
   } catch (e) {
-    alert('Gagal mengunduh template Excel Bug Tracking.');
+    void showAlert('Gagal mengunduh template Excel Bug Tracking.', { title: 'Unduhan Gagal' });
   }
 };
 
@@ -810,11 +837,11 @@ const submitImportExcel = async () => {
     const res = await api.post('/bugs/import-excel', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
-    alert(res.data?.message || 'Import Excel Bug berhasil.');
+    void showAlert(res.data?.message || 'Import Excel Bug berhasil.', { title: 'Import Berhasil', variant: 'success' });
     showImportModal.value = false;
     fetchBugs(1);
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal mengimpor file Excel Bug Tracking.');
+    void showAlert(e.response?.data?.message || 'Gagal mengimpor file Excel Bug Tracking.', { title: 'Import Gagal' });
   } finally {
     importing.value = false;
   }
@@ -836,12 +863,14 @@ const getBugSchedule = (bug) => bug.schedule || bug.test_case?.schedules?.[0] ||
 
 const fetchLookups = async () => {
   try {
-    const [appRes, userRes] = await Promise.all([
+    const [appRes, userRes, moduleRes] = await Promise.all([
       api.get('/cascade/apps'),
       api.get('/cascade/users'),
+      api.get('/cascade/modules'),
     ]);
     apps.value = appRes.data;
     users.value = userRes.data;
+    filterModules.value = moduleRes.data;
   } catch (e) {}
 };
 
@@ -873,6 +902,7 @@ const debounceFetch = () => {
 const resetFilters = () => {
   filters.search = '';
   filters.application_id = '';
+  filters.module_id = '';
   filters.severity = '';
   filters.status = '';
   filters.start_date = '';
@@ -943,7 +973,7 @@ const submitCreateBug = async () => {
     showCreateModal.value = false;
     fetchBugs(pagination.current_page);
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal melaporkan bug.');
+    void showAlert(e.response?.data?.message || 'Gagal melaporkan bug.', { title: 'Bug Gagal Disimpan' });
   } finally {
     saving.value = false;
   }
@@ -969,7 +999,7 @@ const submitUpdateBug = async () => {
     showEditModal.value = false;
     fetchBugs(pagination.current_page);
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal memperbarui bug.');
+    void showAlert(e.response?.data?.message || 'Gagal memperbarui bug.', { title: 'Bug Gagal Diperbarui' });
   } finally {
     saving.value = false;
   }
@@ -995,7 +1025,7 @@ const executeDelete = async () => {
     showDeleteConfirm.value = false;
     fetchBugs(pagination.current_page);
   } catch (e) {
-    alert('Gagal menghapus tiket bug.');
+    void showAlert('Gagal menghapus tiket bug.', { title: 'Bug Gagal Dihapus' });
   }
 };
 

@@ -31,7 +31,7 @@
           </div>
 
           <button
-            v-if="hasFeatureAccess('create_schedule')"
+            v-if="hasFeatureAccess('add_schedule')"
             @click="openCreateModal"
             class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-xs font-bold text-white shadow-md shadow-blue-500/25 transition-all flex items-center space-x-1.5 cursor-pointer"
           >
@@ -165,7 +165,7 @@
           title="Tidak Ada Jadwal QA"
           description="Belum ada jadwal yang cocok dengan filter yang dipilih."
         >
-          <template #action v-if="hasFeatureAccess('create_schedule')">
+          <template #action v-if="hasFeatureAccess('add_schedule')">
             <button
               @click="openCreateModal"
               class="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors cursor-pointer"
@@ -271,7 +271,7 @@
                     Detail
                   </button>
                   <button
-                    v-if="hasFeatureAccess('create_schedule')"
+                    v-if="hasFeatureAccess('update_schedule')"
                     @click="openEditModal(sch)"
                     class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Edit Jadwal"
@@ -279,7 +279,7 @@
                     Edit
                   </button>
                   <button
-                    v-if="hasFeatureAccess('create_schedule')"
+                    v-if="hasFeatureAccess('delete_schedule')"
                     @click="confirmDelete(sch)"
                     class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Hapus Jadwal"
@@ -394,6 +394,9 @@
                 <option value="" disabled>Pilih Aplikasi</option>
                 <option v-for="app in apps" :key="app.id" :value="app.id">{{ app.name }}</option>
               </select>
+              <p v-if="apps.length === 0" class="mt-1 text-[10px] text-amber-700">
+                Belum ada aplikasi aktif. Periksa Master Data Aplikasi.
+              </p>
             </div>
 
             <div>
@@ -401,11 +404,15 @@
               <select
                 v-model="form.module_id"
                 @change="handleFormModuleChange"
+                :disabled="!form.application_id || formModulesLoading"
                 class="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                <option value="">Seluruh Modul</option>
+                <option value="">{{ formModulesLoading ? 'Memuat modul...' : 'Seluruh Modul' }}</option>
                 <option v-for="mod in formModuleOptions" :key="mod.id" :value="mod.id">{{ mod.name }}</option>
               </select>
+              <p v-if="form.application_id && !formModulesLoading && formModuleOptions.length === 0" class="mt-1 text-[10px] text-amber-700">
+                Belum ada modul aktif untuk aplikasi ini. Periksa Master Data Modul.
+              </p>
             </div>
 
             <div>
@@ -415,12 +422,17 @@
               </label>
               <select
                 v-model="form.menu_id"
-                :disabled="!form.module_id"
+                :disabled="!form.module_id || formMenusLoading"
                 class="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
               >
-                <option value="">{{ form.module_id ? 'Seluruh Sub-Menu' : 'Pilih Modul dahulu...' }}</option>
+                <option value="">
+                  {{ formMenusLoading ? 'Memuat fitur...' : form.module_id ? 'Seluruh Sub-Menu' : 'Pilih Modul dahulu...' }}
+                </option>
                 <option v-for="mn in formMenuOptions" :key="mn.id" :value="mn.id">📌 {{ mn.name }} ({{ mn.code }})</option>
               </select>
+              <p v-if="form.module_id && !formMenusLoading && formMenuOptions.length === 0" class="mt-1 text-[10px] text-amber-700">
+                Belum ada sub-menu aktif. Tambahkan atau aktifkan sub-menu melalui Master Data.
+              </p>
             </div>
           </div>
 
@@ -644,6 +656,7 @@ import { ref, reactive, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api';
 import { useAuth } from '../auth';
+import { showAlert } from '../dialog';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
@@ -663,7 +676,7 @@ const isScheduleExpired = (sch) => {
 
 const continueQaFromSchedule = (sch) => {
   if (isScheduleExpired(sch)) {
-    alert('Jadwal QA ini sudah melewati batas hari dan jam yang ditentukan sehingga tidak dapat dilanjutkan.');
+    void showAlert('Jadwal QA ini sudah melewati batas hari dan jam yang ditentukan sehingga tidak dapat dilanjutkan.', { title: 'Jadwal QA Terkunci' });
     return;
   }
   showDetail.value = false;
@@ -684,6 +697,8 @@ const apps = ref([]);
 const users = ref([]);
 const formModuleOptions = ref([]);
 const formMenuOptions = ref([]);
+const formModulesLoading = ref(false);
+const formMenusLoading = ref(false);
 
 const pagination = reactive({
   current_page: 1,
@@ -756,7 +771,9 @@ const fetchLookups = async () => {
     ]);
     apps.value = appRes.data;
     users.value = userRes.data;
-  } catch (e) {}
+  } catch (e) {
+    void showAlert(e.response?.data?.message || 'Gagal memuat aplikasi dan tester.', { title: 'Data Jadwal Gagal Dimuat' });
+  }
 };
 
 const fetchSchedules = async (page = 1) => {
@@ -816,18 +833,43 @@ const handleFormAppChange = async () => {
   form.menu_id = '';
   formModuleOptions.value = [];
   formMenuOptions.value = [];
-  if (form.application_id) {
-    const res = await api.get(`/cascade/modules?application_id=${form.application_id}`);
+  if (!form.application_id) {
+    return;
+  }
+
+  formModulesLoading.value = true;
+  try {
+    const res = await api.get('/cascade/modules', {
+      params: { application_id: form.application_id },
+    });
     formModuleOptions.value = res.data;
+  } catch (e) {
+    void showAlert(e.response?.data?.message || 'Gagal memuat modul aplikasi.', { title: 'Modul Gagal Dimuat' });
+  } finally {
+    formModulesLoading.value = false;
   }
 };
 
 const handleFormModuleChange = async () => {
   form.menu_id = '';
   formMenuOptions.value = [];
-  if (form.module_id) {
-    const res = await api.get(`/cascade/menus?module_id=${form.module_id}`);
+  if (!form.module_id) {
+    return;
+  }
+
+  formMenusLoading.value = true;
+  try {
+    const res = await api.get('/cascade/menus', {
+      params: {
+        application_id: form.application_id,
+        module_id: form.module_id,
+      },
+    });
     formMenuOptions.value = res.data;
+  } catch (e) {
+    void showAlert(e.response?.data?.message || 'Gagal memuat sub-menu aplikasi.', { title: 'Fitur Gagal Dimuat' });
+  } finally {
+    formMenusLoading.value = false;
   }
 };
 
@@ -914,7 +956,7 @@ const saveSchedule = async () => {
     fetchSchedules(pagination.current_page);
     fetchCalendar();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan jadwal.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan jadwal.', { title: 'Jadwal Gagal Disimpan' });
   } finally {
     saving.value = false;
   }
@@ -938,7 +980,7 @@ const executeDelete = async () => {
     fetchSchedules(pagination.current_page);
     fetchCalendar();
   } catch (e) {
-    alert('Gagal menghapus jadwal.');
+    void showAlert('Gagal menghapus jadwal.', { title: 'Jadwal Gagal Dihapus' });
   }
 };
 

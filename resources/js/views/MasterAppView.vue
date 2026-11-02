@@ -10,12 +10,26 @@
         <h2 class="text-lg font-black tracking-tight text-white">Master Data Aplikasi</h2>
         <p class="text-xs text-slate-300 mt-0.5">Kelola daftar sistem dan aplikasi yang berada di bawah pengawasan kualitas tim QA.</p>
       </div>
-      <button
-        @click="openCreateModal"
-        class="relative z-10 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-xs font-bold text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer shrink-0"
-      >
-        + Tambah Aplikasi
-      </button>
+      <div class="relative z-10 flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <form @submit.prevent="fetchApps" class="flex gap-2">
+          <input
+            v-model="searchTerm"
+            type="search"
+            placeholder="Cari aplikasi..."
+            aria-label="Cari aplikasi"
+            class="min-w-0 rounded-xl border border-white/20 bg-slate-900/90 px-3 py-2 text-xs text-white placeholder:text-slate-400 sm:w-48"
+          />
+          <button type="submit" class="rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-white hover:bg-white/10">
+            Cari
+          </button>
+        </form>
+        <button
+          @click="openCreateModal"
+          class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-xs font-bold text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer shrink-0"
+        >
+          + Tambah Aplikasi
+        </button>
+      </div>
     </div>
 
     <!-- Table -->
@@ -96,12 +110,14 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import api from '../api';
+import { showAlert, showConfirm } from '../dialog';
 import Modal from '../components/Modal.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
 const loading = ref(false);
 const apps = ref([]);
+const searchTerm = ref('');
 const showModal = ref(false);
 const isEdit = ref(false);
 const currentId = ref(null);
@@ -117,7 +133,9 @@ const form = reactive({
 const fetchApps = async () => {
   loading.value = true;
   try {
-    const res = await api.get('/applications');
+    const res = await api.get('/applications', {
+      params: { search: searchTerm.value.trim() || undefined },
+    });
     apps.value = res.data.data;
   } finally {
     loading.value = false;
@@ -154,14 +172,21 @@ const saveApp = async () => {
     showModal.value = false;
     fetchApps();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan.', { title: 'Aplikasi Gagal Disimpan' });
   }
 };
 
 const confirmDelete = async (a) => {
-  if (confirm(`Hapus aplikasi '${a.name}'?`)) {
+  if (!await showConfirm(`Hapus aplikasi '${a.name}'?`, {
+    title: 'Hapus Aplikasi',
+    confirmText: 'Ya, hapus aplikasi',
+  })) return;
+
+  try {
     await api.delete(`/applications/${a.id}`);
-    fetchApps();
+    await fetchApps();
+  } catch (e) {
+    void showAlert(e.response?.data?.message || 'Aplikasi gagal dihapus.', { title: 'Aplikasi Gagal Dihapus' });
   }
 };
 

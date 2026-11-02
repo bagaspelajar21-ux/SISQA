@@ -34,7 +34,7 @@
           </button>
 
           <button
-            v-if="hasFeatureAccess('create_test')"
+            v-if="hasFeatureAccess('add_test')"
             @click="openCreateModal"
             class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-xs font-bold text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer"
           >
@@ -43,6 +43,8 @@
         </div>
       </div>
     </div>
+
+    <QaLockStatusBanner :module-id="filters.module_id" @unlocked="fetchTestCases(1)" />
 
     <!-- Quick Test Case Summary Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -93,11 +95,28 @@
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Aplikasi</label>
           <select
             v-model="filters.application_id"
-            @change="fetchTestCases"
+            @change="filters.module_id = ''; fetchTestCases(1)"
             class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">Semua Aplikasi</option>
             <option v-for="app in apps" :key="app.id" :value="app.id">{{ app.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Modul QA</label>
+          <select
+            v-model="filters.module_id"
+            @change="fetchTestCases(1)"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Semua Modul</option>
+            <option
+              v-for="module in filterModuleOptions"
+              :key="module.id"
+              :value="module.id"
+            >
+              {{ applicationName(module.application_id) }} · {{ module.name }}
+            </option>
           </select>
         </div>
         <div>
@@ -228,7 +247,7 @@
                   <!-- Eksekusi Button / Locked if Schedule Expired -->
                   <span
                     v-if="tc.is_schedule_expired && !tc.can_continue_qa"
-                    class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px] cursor-not-allowed select-none"
+                    class="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-extrabold leading-tight text-rose-800 shadow-sm cursor-not-allowed select-none sm:text-sm"
                     :title="`Jadwal QA (${tc.expired_schedule_code || ''}) telah melewati batas waktu (${tc.expired_schedule_end || ''}). Tidak dapat melanjutkan QA.`"
                   >
                     🔒 Jadwal Lewat Waktu
@@ -249,7 +268,7 @@
                     Detail
                   </button>
                   <button
-                    v-if="hasFeatureAccess('create_test')"
+                    v-if="hasFeatureAccess('update_test')"
                     @click="openEditModal(tc)"
                     class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Edit Skenario"
@@ -257,7 +276,7 @@
                     Edit
                   </button>
                   <button
-                    v-if="hasFeatureAccess('create_test')"
+                    v-if="hasFeatureAccess('delete_test')"
                     @click="confirmDelete(tc)"
                     class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Hapus Skenario"
@@ -323,6 +342,17 @@
               <span>{{ st }}</span>
             </label>
           </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Fitur yang Diuji / Keterangan</label>
+          <textarea
+            v-model="execForm.feature_description"
+            rows="3"
+            maxlength="5000"
+            placeholder="Contoh: Menu Pembelian — kolom Gudang tidak bisa diisi."
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          ></textarea>
         </div>
 
         <div>
@@ -567,6 +597,9 @@
                 <div v-if="ex.actual_result" class="text-slate-600 text-[11px]">
                   <strong>Hasil:</strong> {{ ex.actual_result }}
                 </div>
+                <div v-if="ex.feature_description" class="text-slate-600 text-[11px] mt-0.5">
+                  <strong>Fitur / Keterangan:</strong> {{ ex.feature_description }}
+                </div>
                 <div v-if="ex.notes" class="text-slate-500 text-[10px] mt-0.5">
                   <strong>Catatan:</strong> {{ ex.notes }}
                 </div>
@@ -657,16 +690,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../api';
 import { useAuth } from '../auth';
+import { showAlert } from '../dialog';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import EmptyState from '../components/EmptyState.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
+import QaLockStatusBanner from '../components/QaLockStatusBanner.vue';
 
 const route = useRoute();
 const { hasFeatureAccess } = useAuth();
@@ -677,6 +712,7 @@ const executing = ref(false);
 const testCases = ref([]);
 const apps = ref([]);
 const users = ref([]);
+const filterModules = ref([]);
 const formModuleOptions = ref([]);
 const formMenuOptions = ref([]);
 
@@ -690,11 +726,16 @@ const pagination = reactive({
 const filters = reactive({
   search: '',
   application_id: '',
+  module_id: '',
   status: '',
   priority: '',
   start_date: '',
   end_date: '',
 });
+const filterModuleOptions = computed(() => filterModules.value.filter((module) => (
+  !filters.application_id || Number(module.application_id) === Number(filters.application_id)
+)));
+const applicationName = (applicationId) => apps.value.find((app) => Number(app.id) === Number(applicationId))?.name || 'Aplikasi';
 
 const showModal = ref(false);
 const isEdit = ref(false);
@@ -716,6 +757,7 @@ const showExecuteModal = ref(false);
 const selectedTestCase = ref(null);
 const execForm = reactive({
   status: 'PASS',
+  feature_description: '',
   actual_result: '',
   notes: '',
   files: [],
@@ -744,7 +786,7 @@ const downloadExcelTemplate = async () => {
     link.click();
     link.remove();
   } catch (e) {
-    alert('Gagal mengunduh template Excel Test Case.');
+    void showAlert('Gagal mengunduh template Excel Test Case.', { title: 'Unduhan Gagal' });
   }
 };
 
@@ -770,11 +812,11 @@ const submitImportExcel = async () => {
     const res = await api.post('/test-cases/import-excel', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
-    alert(res.data?.message || 'Import Excel berhasil.');
+    void showAlert(res.data?.message || 'Import Excel berhasil.', { title: 'Import Berhasil', variant: 'success' });
     showImportModal.value = false;
     fetchTestCases(1);
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal mengimpor file Excel Test Case.');
+    void showAlert(e.response?.data?.message || 'Gagal mengimpor file Excel Test Case.', { title: 'Import Gagal' });
   } finally {
     importing.value = false;
   }
@@ -788,12 +830,14 @@ const formatDateTime = (str) => {
 
 const fetchLookups = async () => {
   try {
-    const [appRes, userRes] = await Promise.all([
+    const [appRes, userRes, moduleRes] = await Promise.all([
       api.get('/cascade/apps'),
       api.get('/cascade/users'),
+      api.get('/cascade/modules'),
     ]);
     apps.value = appRes.data;
     users.value = userRes.data;
+    filterModules.value = moduleRes.data;
   } catch (e) {}
 };
 
@@ -825,6 +869,7 @@ const debounceFetch = () => {
 const resetFilters = () => {
   filters.search = '';
   filters.application_id = '';
+  filters.module_id = '';
   filters.status = '';
   filters.priority = '';
   filters.start_date = '';
@@ -902,7 +947,7 @@ const saveTestCase = async () => {
     showModal.value = false;
     fetchTestCases(pagination.current_page);
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan test case.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan test case.', { title: 'Test Case Gagal Disimpan' });
   } finally {
     saving.value = false;
   }
@@ -911,6 +956,7 @@ const saveTestCase = async () => {
 const openExecuteModal = (tc) => {
   selectedTestCase.value = tc;
   execForm.status = 'PASS';
+  execForm.feature_description = '';
   execForm.actual_result = '';
   execForm.notes = '';
   execForm.files = [];
@@ -926,6 +972,7 @@ const submitExecution = async () => {
   try {
     const fd = new FormData();
     fd.append('status', execForm.status);
+    if (execForm.feature_description) fd.append('feature_description', execForm.feature_description);
     if (execForm.actual_result) fd.append('actual_result', execForm.actual_result);
     if (execForm.notes) fd.append('notes', execForm.notes);
     execForm.files.forEach((file) => {
@@ -939,7 +986,7 @@ const submitExecution = async () => {
     showExecuteModal.value = false;
     fetchTestCases(pagination.current_page);
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan eksekusi pengujian.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan eksekusi pengujian.', { title: 'Eksekusi Gagal Disimpan' });
   } finally {
     executing.value = false;
   }
@@ -965,7 +1012,7 @@ const executeDelete = async () => {
     showDeleteConfirm.value = false;
     fetchTestCases(pagination.current_page);
   } catch (e) {
-    alert('Gagal menghapus test case.');
+    void showAlert('Gagal menghapus test case.', { title: 'Test Case Gagal Dihapus' });
   }
 };
 

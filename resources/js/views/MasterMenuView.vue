@@ -10,12 +10,23 @@
         <h2 class="text-lg font-black tracking-tight text-white">Master Data Sub-Menu / Fitur</h2>
         <p class="text-xs text-slate-300 mt-0.5">Kelola daftar halaman sub-menu dan endpoint fitur di dalam setiap modul aplikasi.</p>
       </div>
-      <button
-        @click="openCreateModal"
-        class="relative z-10 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-xs font-bold text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer shrink-0"
-      >
-        + Tambah Sub-Menu
-      </button>
+      <div class="relative z-10 flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <select
+          v-model="filterAppId"
+          @change="fetchMenus"
+          aria-label="Filter berdasarkan aplikasi"
+          class="rounded-xl border border-white/20 bg-slate-900/90 px-3 py-2 text-xs font-semibold text-white"
+        >
+          <option value="">Semua Aplikasi</option>
+          <option v-for="a in apps" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+        <button
+          @click="openCreateModal"
+          class="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-xs font-bold text-white shadow-md shadow-blue-500/25 transition-all cursor-pointer shrink-0"
+        >
+          + Tambah Sub-Menu
+        </button>
+      </div>
     </div>
 
     <!-- Table -->
@@ -92,6 +103,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import api from '../api';
+import { showAlert, showConfirm } from '../dialog';
 import Modal from '../components/Modal.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
@@ -99,6 +111,7 @@ import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 const loading = ref(false);
 const menus = ref([]);
 const apps = ref([]);
+const filterAppId = ref('');
 const moduleOptions = ref([]);
 const showModal = ref(false);
 const isEdit = ref(false);
@@ -115,7 +128,9 @@ const fetchMenus = async () => {
   loading.value = true;
   try {
     const [menuRes, appRes] = await Promise.all([
-      api.get('/menus'),
+      api.get('/menus', {
+        params: { application_id: filterAppId.value || undefined, per_page: 50 },
+      }),
       api.get('/cascade/apps'),
     ]);
     menus.value = menuRes.data.data;
@@ -157,22 +172,36 @@ const openEditModal = async (mn) => {
 
 const saveMenu = async () => {
   try {
+    const addedMenuName = form.name.trim();
     if (isEdit.value) {
       await api.put(`/menus/${currentId.value}`, form);
     } else {
       await api.post('/menus', form);
     }
     showModal.value = false;
-    fetchMenus();
+    await fetchMenus();
+    if (!isEdit.value) {
+      await showAlert(
+        `Sub-menu "${addedMenuName}" berhasil ditambahkan dan sekarang tersedia di ceklist hak akses. Secara default, aksesnya belum dicentang.`,
+        { title: 'Sub-Menu Ditambahkan', variant: 'success' },
+      );
+    }
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan.', { title: 'Sub-Menu Gagal Disimpan' });
   }
 };
 
 const confirmDelete = async (mn) => {
-  if (confirm(`Hapus menu '${mn.name}'?`)) {
+  if (!await showConfirm(`Hapus menu '${mn.name}'?`, {
+    title: 'Hapus Sub-Menu',
+    confirmText: 'Ya, hapus sub-menu',
+  })) return;
+
+  try {
     await api.delete(`/menus/${mn.id}`);
-    fetchMenus();
+    await fetchMenus();
+  } catch (e) {
+    void showAlert(e.response?.data?.message || 'Sub-menu gagal dihapus.', { title: 'Sub-Menu Gagal Dihapus' });
   }
 };
 

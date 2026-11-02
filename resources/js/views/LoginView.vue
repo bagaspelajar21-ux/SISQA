@@ -341,11 +341,15 @@
               </span>
               <input
                 v-model="password"
-                type="password"
+                :type="showPassword ? 'text' : 'password'"
                 required
                 placeholder="••••••••"
-                class="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-950/45 hover:bg-slate-950/60 focus:bg-slate-950/75 backdrop-blur-md border border-sky-300/25 focus:border-sky-400 text-xs text-white placeholder-sky-200/45 focus:outline-none focus:ring-2 focus:ring-sky-400/30 transition-all"
+                class="w-full pl-10 pr-11 py-2.5 rounded-xl bg-slate-950/45 hover:bg-slate-950/60 focus:bg-slate-950/75 backdrop-blur-md border border-sky-300/25 focus:border-sky-400 text-xs text-white placeholder-sky-200/45 focus:outline-none focus:ring-2 focus:ring-sky-400/30 transition-all"
               />
+              <button type="button" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Sembunyikan password' : 'Lihat password'" class="absolute inset-y-0 right-0 px-3 text-sky-200/70 hover:text-white">
+                <svg v-if="showPassword" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.2A10.9 10.9 0 0112 5c5 0 9 4.5 10 7a11.8 11.8 0 01-3.1 4.3M6.2 6.2A11.8 11.8 0 002 12c1 2.5 5 7 10 7 1.2 0 2.3-.2 3.3-.6" /></svg>
+                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10-3a3 3 0 100 6 3 3 0 000-6z" /></svg>
+              </button>
             </div>
           </div>
 
@@ -378,6 +382,7 @@ const { login, getFirstAllowedPath } = useAuth();
 
 const loginInput = ref('');
 const password = ref('');
+const showPassword = ref(false);
 const loading = ref(false);
 const errorMessage = ref('');
 

@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Models\Application;
 use App\Models\ApplicationModule;
+use App\Models\AutomatedReminderSetting;
 use App\Models\Bug;
 use App\Models\BugEvidence;
 use App\Models\QaSchedule;
@@ -61,9 +62,118 @@ class QaScheduleLockTest extends TestCase
             'status' => 'PASS',
             'qa_schedule_id' => $schedule->id,
         ])->assertForbidden()
-            ->assertJsonPath('message', "Modul/menu terkunci karena jadwal QA ({$schedule->schedule_code}) telah berakhir pada {$schedule->end_time->format('d/m/Y H:i')}. Aktivitas QA terkunci; hubungi Admin jika perlu melanjutkan.");
+            ->assertJsonPath('message', "Modul/menu terkunci karena jadwal QA ({$schedule->schedule_code}) telah berakhir pada {$schedule->end_time->format('d/m/Y H:i')}. Masa toleransi 0 menit telah habis; hubungi Admin jika perlu melanjutkan.");
 
         $this->assertDatabaseCount('test_executions', 0);
+    }
+
+    public function test_user_can_execute_during_grace_period_but_is_locked_after_it_expires(): void
+    {
+        $user = User::factory()->create();
+        RolePermissionService::saveSingleUserPermissions($user->id, ['/test-cases'], ['execute_test']);
+        [$testCase, $schedule] = $this->createExpiredQaSchedule($user);
+        $schedule->testCases()->attach($testCase->id);
+        AutomatedReminderSetting::current()->update([
+            'qa_lock_mode' => 'grace_then_lock',
+            'qa_lock_minutes' => 5,
+        ]);
+        Sanctum::actingAs($user);
+        $this->travelTo($schedule->end_time->copy()->addMinutes(4));
+
+        $this->postJson("/api/test-cases/{$testCase->id}/execute", [
+            'status' => 'PASS',
+            'qa_schedule_id' => $schedule->id,
+        ])->assertCreated();
+
+        $this->travelTo($schedule->end_time->copy()->addMinutes(6));
+
+        $this->postJson("/api/test-cases/{$testCase->id}/execute", [
+            'status' => 'PASS',
+            'qa_schedule_id' => $schedule->id,
+        ])->assertForbidden()
+            ->assertJsonPath('message', "Modul/menu terkunci karena jadwal QA ({$schedule->schedule_code}) telah berakhir pada {$schedule->end_time->format('d/m/Y H:i')}. Masa toleransi 5 menit telah habis; hubungi Admin jika perlu melanjutkan.");
+
+        $this->assertDatabaseCount('test_executions', 1);
+    }
+
+    public function test_temporary_lock_ends_after_the_admin_configured_minutes(): void
+    {
+        $user = User::factory()->create();
+        RolePermissionService::saveSingleUserPermissions($user->id, ['/test-cases'], ['execute_test']);
+        [$testCase, $schedule] = $this->createExpiredQaSchedule($user);
+        $schedule->testCases()->attach($testCase->id);
+        AutomatedReminderSetting::current()->update([
+            'qa_lock_mode' => 'lock_for_duration',
+            'qa_lock_minutes' => 10,
+        ]);
+        Sanctum::actingAs($user);
+        $this->travelTo($schedule->end_time->copy()->addMinutes(5));
+
+        $this->postJson("/api/test-cases/{$testCase->id}/execute", [
+            'status' => 'PASS',
+            'qa_schedule_id' => $schedule->id,
+        ])->assertForbidden()
+            ->assertJsonPath('message', "Modul/menu terkunci karena jadwal QA ({$schedule->schedule_code}) telah berakhir pada {$schedule->end_time->format('d/m/Y H:i')}. Penguncian sementara berlangsung selama 10 menit setelah jadwal berakhir.");
+
+        $this->travelTo($schedule->end_time->copy()->addMinutes(10));
+
+        $this->postJson("/api/test-cases/{$testCase->id}/execute", [
+            'status' => 'PASS',
+            'qa_schedule_id' => $schedule->id,
+        ])->assertCreated();
+    }
+
+    public function test_temporary_lock_hides_qa_records_then_releases_all_three_lists(): void
+    {
+        $user = User::factory()->create();
+        RolePermissionService::saveSingleUserPermissions(
+            $user->id,
+            ['/test-cases', '/bugs', '/retests'],
+            [],
+        );
+        [$testCase, $schedule] = $this->createExpiredQaSchedule($user);
+        $module = $this->assignScheduleToModule($testCase, $schedule);
+        $bug = $this->createBug($user, $testCase, $schedule);
+        $retest = Retest::create([
+            'bug_id' => $bug->id,
+            'test_case_id' => $testCase->id,
+            'qa_schedule_id' => $schedule->id,
+            'application_id' => $schedule->application_id,
+            'module_id' => $module->id,
+            'tester_id' => $user->id,
+            'retest_date' => now(),
+            'actual_result' => 'Belum berhasil.',
+            'status' => 'Failed',
+        ]);
+        AutomatedReminderSetting::current()->update([
+            'qa_lock_mode' => 'lock_for_duration',
+            'qa_lock_minutes' => 10,
+        ]);
+        Sanctum::actingAs($user);
+        $this->travelTo($schedule->end_time->copy()->addMinutes(5));
+
+        $this->getJson('/api/test-cases')
+            ->assertOk()
+            ->assertJsonMissing(['id' => $testCase->id])
+            ->assertJsonPath('qa_lock_policy.minutes', 10);
+        $this->getJson('/api/bugs')
+            ->assertOk()
+            ->assertJsonMissing(['id' => $bug->id]);
+        $this->getJson('/api/retests')
+            ->assertOk()
+            ->assertJsonMissing(['id' => $retest->id]);
+
+        $this->travelTo($schedule->end_time->copy()->addMinutes(10));
+
+        $this->getJson('/api/test-cases')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $testCase->id]);
+        $this->getJson('/api/bugs')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $bug->id]);
+        $this->getJson('/api/retests')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $retest->id]);
     }
 
     public function test_admin_can_execute_test_case_after_its_qa_schedule_expires(): void
@@ -218,6 +328,150 @@ class QaScheduleLockTest extends TestCase
         $this->getJson("/api/test-cases/{$testCase->id}")
             ->assertOk()
             ->assertJsonPath('test_case.id', $testCase->id);
+    }
+
+    public function test_follow_schedule_lock_opens_when_the_next_schedule_for_the_same_module_starts(): void
+    {
+        $this->travelTo('2026-03-10 09:00:00');
+        $user = User::factory()->create(['role' => 'admin']);
+        $application = Application::create([
+            'name' => 'Aplikasi QA',
+            'code' => 'APP-QA-FOLLOW',
+        ]);
+        $module = ApplicationModule::create([
+            'application_id' => $application->id,
+            'name' => 'Modul Terjadwal',
+            'code' => 'MOD-QA-FOLLOW',
+        ]);
+        QaSchedule::create([
+            'schedule_code' => 'SCH-QA-PAST',
+            'title' => 'Jadwal yang sudah selesai',
+            'application_id' => $application->id,
+            'module_id' => $module->id,
+            'tester_id' => $user->id,
+            'start_time' => '2026-03-10 07:00:00',
+            'end_time' => '2026-03-10 08:59:00',
+            'target_test_cases_count' => 1,
+            'priority' => 'Medium',
+            'status' => 'In Progress',
+        ]);
+        QaSchedule::create([
+            'schedule_code' => 'SCH-QA-NEXT',
+            'title' => 'Jadwal QA berikutnya',
+            'application_id' => $application->id,
+            'module_id' => $module->id,
+            'tester_id' => $user->id,
+            'start_time' => '2026-03-10 10:00:00',
+            'end_time' => '2026-03-10 11:00:00',
+            'target_test_cases_count' => 1,
+            'priority' => 'Medium',
+            'status' => 'Scheduled',
+        ]);
+        AutomatedReminderSetting::current()->update(['qa_lock_mode' => 'follow_schedule']);
+        Sanctum::actingAs($user);
+
+        $this->getJson("/api/qa-access/status?module_id={$module->id}")
+            ->assertOk()
+            ->assertJsonPath('status.locked', true)
+            ->assertJsonPath('status.schedule_code', 'SCH-QA-PAST')
+            ->assertJsonPath('status.unlock_at', '2026-03-10T10:00:00+00:00')
+            ->assertJsonPath('status.waiting_for_schedule', false);
+
+        $this->travelTo('2026-03-10 10:00:00');
+
+        $this->getJson("/api/qa-access/status?module_id={$module->id}")
+            ->assertOk()
+            ->assertJsonPath('status.locked', false);
+    }
+
+    public function test_follow_schedule_lock_does_not_open_for_a_different_module_schedule(): void
+    {
+        $this->travelTo('2026-03-10 09:00:00');
+        $user = User::factory()->create(['role' => 'admin']);
+        $application = Application::create([
+            'name' => 'Aplikasi QA',
+            'code' => 'APP-QA-OTHER-FOLLOW',
+        ]);
+        $lockedModule = ApplicationModule::create([
+            'application_id' => $application->id,
+            'name' => 'Modul Terkunci',
+            'code' => 'MOD-QA-LOCKED-FOLLOW',
+        ]);
+        $otherModule = ApplicationModule::create([
+            'application_id' => $application->id,
+            'name' => 'Modul Lain',
+            'code' => 'MOD-QA-OTHER-FOLLOW',
+        ]);
+        QaSchedule::create([
+            'schedule_code' => 'SCH-QA-LOCKED',
+            'title' => 'Jadwal yang berakhir',
+            'application_id' => $application->id,
+            'module_id' => $lockedModule->id,
+            'tester_id' => $user->id,
+            'start_time' => '2026-03-10 07:00:00',
+            'end_time' => '2026-03-10 08:59:00',
+            'target_test_cases_count' => 1,
+            'priority' => 'Medium',
+            'status' => 'In Progress',
+        ]);
+        QaSchedule::create([
+            'schedule_code' => 'SCH-QA-OTHER',
+            'title' => 'Jadwal pada modul lain',
+            'application_id' => $application->id,
+            'module_id' => $otherModule->id,
+            'tester_id' => $user->id,
+            'start_time' => '2026-03-10 10:00:00',
+            'end_time' => '2026-03-10 11:00:00',
+            'target_test_cases_count' => 1,
+            'priority' => 'Medium',
+            'status' => 'Scheduled',
+        ]);
+        AutomatedReminderSetting::current()->update(['qa_lock_mode' => 'follow_schedule']);
+        Sanctum::actingAs($user);
+
+        $this->getJson("/api/qa-access/status?module_id={$lockedModule->id}")
+            ->assertOk()
+            ->assertJsonPath('status.locked', true)
+            ->assertJsonPath('status.unlock_at', null)
+            ->assertJsonPath('status.waiting_for_schedule', true);
+    }
+
+    public function test_temporary_lock_status_returns_the_automatic_unlock_time(): void
+    {
+        $this->travelTo('2026-03-10 09:05:00');
+        $user = User::factory()->create(['role' => 'admin']);
+        $application = Application::create([
+            'name' => 'Aplikasi QA',
+            'code' => 'APP-QA-TEMPORARY',
+        ]);
+        $module = ApplicationModule::create([
+            'application_id' => $application->id,
+            'name' => 'Modul QA',
+            'code' => 'MOD-QA-TEMPORARY',
+        ]);
+        QaSchedule::create([
+            'schedule_code' => 'SCH-QA-TEMPORARY',
+            'title' => 'Jadwal QA yang berakhir',
+            'application_id' => $application->id,
+            'module_id' => $module->id,
+            'tester_id' => $user->id,
+            'start_time' => '2026-03-10 07:00:00',
+            'end_time' => '2026-03-10 09:00:00',
+            'target_test_cases_count' => 1,
+            'priority' => 'Medium',
+            'status' => 'In Progress',
+        ]);
+        AutomatedReminderSetting::current()->update([
+            'qa_lock_mode' => 'lock_for_duration',
+            'qa_lock_minutes' => 10,
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->getJson("/api/qa-access/status?module_id={$module->id}")
+            ->assertOk()
+            ->assertJsonPath('status.locked', true)
+            ->assertJsonPath('status.unlock_at', '2026-03-10T09:10:00+00:00')
+            ->assertJsonPath('status.waiting_for_schedule', false);
     }
 
     public function test_returns_403_when_user_updates_bug_after_linked_schedule_expires(): void

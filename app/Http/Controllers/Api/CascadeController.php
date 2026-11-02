@@ -24,7 +24,9 @@ class CascadeController extends Controller
 
     public function modules(Request $request): JsonResponse
     {
-        $query = ApplicationModule::where('is_active', true);
+        $query = ApplicationModule::query()
+            ->where('is_active', true)
+            ->whereHas('application', fn ($applicationQuery) => $applicationQuery->where('is_active', true));
 
         if ($appId = $request->input('application_id')) {
             $query->where('application_id', $appId);
@@ -37,7 +39,10 @@ class CascadeController extends Controller
 
     public function menus(Request $request): JsonResponse
     {
-        $query = ApplicationMenu::where('is_active', true);
+        $query = ApplicationMenu::query()
+            ->where('is_active', true)
+            ->whereHas('application', fn ($applicationQuery) => $applicationQuery->where('is_active', true))
+            ->whereHas('module', fn ($moduleQuery) => $moduleQuery->where('is_active', true));
 
         if ($appId = $request->input('application_id')) {
             $query->where('application_id', $appId);

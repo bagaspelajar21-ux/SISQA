@@ -10,68 +10,65 @@
     >
       <div
         v-if="show"
-        class="fixed inset-0 z-[110] overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+        class="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-950/65 p-4 backdrop-blur-sm"
         @click.self="$emit('cancel')"
       >
-        <div class="relative bg-white rounded-3xl shadow-2xl border border-slate-200/80 overflow-hidden w-full max-w-md my-auto">
-          <!-- Top Gradient Accent Bar -->
+        <section
+          class="w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl shadow-slate-950/30 ring-1 ring-slate-900/10"
+          role="alertdialog"
+          aria-modal="true"
+          :aria-label="title"
+        >
           <div
             :class="[
-              'h-2 w-full bg-gradient-to-r',
-              isDanger
-                ? 'from-red-500 via-rose-500 to-orange-500'
-                : 'from-blue-600 via-indigo-600 to-purple-600'
+              'h-1.5 bg-gradient-to-r',
+              isDanger ? 'from-rose-500 via-red-500 to-orange-400' : 'from-sky-500 via-blue-600 to-violet-500',
             ]"
           ></div>
-
-          <div class="p-6 sm:p-7 text-center">
-            <!-- Modern Glowing Icon Badge -->
-            <div
-              :class="[
-                'w-16 h-16 rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-sm ring-8',
-                isDanger
-                  ? 'bg-gradient-to-br from-red-50 to-rose-100 text-red-600 ring-red-50/80 border border-red-200/60'
-                  : 'bg-gradient-to-br from-blue-50 to-indigo-100 text-blue-600 ring-blue-50/80 border border-blue-200/60'
-              ]"
-            >
-              <svg v-if="isDanger" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              <svg v-else class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          <div class="p-6 sm:p-7">
+            <div class="flex items-start gap-4">
+              <div
+                :class="[
+                  'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ring-8',
+                  isDanger ? 'bg-rose-50 text-rose-600 ring-rose-50/70' : 'bg-blue-50 text-blue-600 ring-blue-50/70',
+                ]"
+              >
+                <svg v-if="isDanger" class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 9v4m0 4h.01M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.4 0Z" />
+                </svg>
+                <svg v-else class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 16v-4m0-4h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z" />
+                </svg>
+              </div>
+              <div class="min-w-0 pt-0.5">
+                <h2 class="text-base font-black tracking-tight text-slate-900">{{ title }}</h2>
+                <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-600">{{ message }}</p>
+              </div>
             </div>
 
-            <h3 class="text-base sm:text-lg font-black text-slate-900 tracking-tight mb-1.5">
-              {{ title }}
-            </h3>
-            <p class="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6">
-              {{ message }}
-            </p>
-
-            <div class="grid grid-cols-2 gap-3">
+            <div class="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
+                class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-200"
                 @click="$emit('cancel')"
-                class="py-2.5 px-4 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-700 bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer"
               >
                 {{ cancelText }}
               </button>
               <button
                 type="button"
-                @click="$emit('confirm')"
                 :class="[
-                  'py-2.5 px-4 rounded-xl text-xs font-extrabold text-white shadow-lg transition-all cursor-pointer',
+                  'rounded-xl px-4 py-2.5 text-sm font-extrabold text-white shadow-lg transition focus:outline-none focus:ring-4',
                   isDanger
-                    ? 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 shadow-red-600/25'
-                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-600/25'
+                    ? 'bg-gradient-to-r from-rose-600 to-red-600 shadow-rose-600/20 hover:from-rose-700 hover:to-red-700 focus:ring-rose-200'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 shadow-blue-600/20 hover:from-blue-700 hover:to-indigo-700 focus:ring-blue-200',
                 ]"
+                @click="$emit('confirm')"
               >
                 {{ confirmText }}
               </button>
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </Transition>
   </Teleport>

@@ -16,6 +16,8 @@ import MasterModuleView from './views/MasterModuleView.vue';
 import MasterMenuView from './views/MasterMenuView.vue';
 import UserManagementView from './views/UserManagementView.vue';
 import AdminReminderView from './views/AdminReminderView.vue';
+import AdminQaSettingsView from './views/AdminQaSettingsView.vue';
+import AdminWorkLogAnalysisView from './views/AdminWorkLogAnalysisView.vue';
 import ProfileView from './views/ProfileView.vue';
 import { useAuth } from './auth';
 
@@ -117,10 +119,22 @@ const routes = [
     meta: { title: 'Manajemen Pengguna', adminOnly: true },
   },
   {
+    path: '/admin/work-analysis',
+    name: 'admin-work-analysis',
+    component: AdminWorkLogAnalysisView,
+    meta: { title: 'Analisis Pekerjaan', adminOnly: true },
+  },
+  {
     path: '/admin/reminders',
     name: 'admin-reminders',
     component: AdminReminderView,
     meta: { title: 'Pengingat & Notifikasi', adminOnly: true },
+  },
+  {
+    path: '/admin/qa-settings',
+    name: 'admin-qa-settings',
+    component: AdminQaSettingsView,
+    meta: { title: 'Pengaturan QA & Motivasi', adminOnly: true },
   },
   {
     path: '/profile',

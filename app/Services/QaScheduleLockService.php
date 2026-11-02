@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AutomatedReminderSetting;
 use App\Models\Bug;
 use App\Models\QaSchedule;
 use App\Models\Retest;
@@ -12,9 +13,11 @@ use Illuminate\Support\Collection;
 
 class QaScheduleLockService
 {
+    private ?AutomatedReminderSetting $currentSettings = null;
+
     public function expiredSchedule(?QaSchedule $schedule): ?QaSchedule
     {
-        return $schedule?->status !== 'Cancelled' && $schedule?->hasPassedEndTime() ? $schedule : null;
+        return $this->isScheduleLocked($schedule) ? $schedule : null;
     }
 
     public function expiredScheduleFromSchedules(Collection $schedules): ?QaSchedule
@@ -22,15 +25,79 @@ class QaScheduleLockService
         $schedules = $schedules->filter(fn (QaSchedule $schedule): bool => $schedule->status !== 'Cancelled');
 
         if ($schedules->contains(
-            fn (QaSchedule $schedule): bool => $schedule->end_time !== null && now()->lessThanOrEqualTo($schedule->end_time)
+            fn (QaSchedule $schedule): bool => $this->isScheduleInAccessPeriod($schedule)
         )) {
             return null;
         }
 
         return $schedules
-            ->filter(fn (QaSchedule $schedule): bool => $schedule->hasPassedEndTime())
+            ->filter(fn (QaSchedule $schedule): bool => $this->isScheduleLocked($schedule))
             ->sortByDesc('end_time')
             ->first();
+    }
+
+    public function lockMessage(QaSchedule $schedule): string
+    {
+        $settings = $this->settings();
+        $endedAt = $schedule->end_time?->format('d/m/Y H:i');
+
+        if ($settings->qa_lock_mode === 'lock_for_duration') {
+            return "Modul/menu terkunci karena jadwal QA ({$schedule->schedule_code}) telah berakhir pada {$endedAt}. Penguncian sementara berlangsung selama {$settings->qa_lock_minutes} menit setelah jadwal berakhir.";
+        }
+
+        if ($settings->qa_lock_mode === 'follow_schedule') {
+            return "Modul/menu terkunci karena jadwal QA ({$schedule->schedule_code}) telah berakhir pada {$endedAt}. Akses dibuka otomatis saat jadwal QA berikutnya pada modul yang sama dimulai.";
+        }
+
+        return "Modul/menu terkunci karena jadwal QA ({$schedule->schedule_code}) telah berakhir pada {$endedAt}. Masa toleransi {$settings->qa_lock_minutes} menit telah habis; hubungi Admin jika perlu melanjutkan.";
+    }
+
+    /**
+     * @return array{mode: string, minutes: int}
+     */
+    public function policySummary(): array
+    {
+        $settings = $this->settings();
+
+        return [
+            'mode' => $settings->qa_lock_mode,
+            'minutes' => $settings->qa_lock_minutes,
+        ];
+    }
+
+    /**
+     * @return array{locked: bool, mode: string, schedule_code: ?string, unlock_at: ?string, waiting_for_schedule: bool}
+     */
+    public function statusForModule(int $moduleId): array
+    {
+        $settings = $this->settings();
+        $lockedSchedule = $this->expiredScheduleForModuleMenu($moduleId, null);
+        $unlockAt = null;
+        $waitingForSchedule = false;
+
+        if ($lockedSchedule !== null && $settings->qa_lock_mode === 'lock_for_duration') {
+            $unlockAt = $lockedSchedule->end_time
+                ?->copy()
+                ->addMinutes($settings->qa_lock_minutes)
+                ->toIso8601String();
+        } elseif ($lockedSchedule !== null) {
+            $nextSchedule = QaSchedule::query()
+                ->where('module_id', $moduleId)
+                ->whereIn('status', ['Scheduled', 'In Progress'])
+                ->where('start_time', '>', now())
+                ->orderBy('start_time')
+                ->first(['start_time']);
+            $unlockAt = $nextSchedule?->start_time?->toIso8601String();
+            $waitingForSchedule = $unlockAt === null;
+        }
+
+        return [
+            'locked' => $lockedSchedule !== null,
+            'mode' => $settings->qa_lock_mode,
+            'schedule_code' => $lockedSchedule?->schedule_code,
+            'unlock_at' => $unlockAt,
+            'waiting_for_schedule' => $waitingForSchedule,
+        ];
     }
 
     public function expiredScheduleForTestCase(TestCase $testCase): ?QaSchedule
@@ -205,14 +272,39 @@ class QaScheduleLockService
 
     private function whereExpired(Builder $query): void
     {
-        $query->where('status', '!=', 'Cancelled')
-            ->where('end_time', '<', now());
+        $settings = $this->settings();
+        $query->where('status', '!=', 'Cancelled');
+
+        if ($settings->qa_lock_mode === 'follow_schedule') {
+            $query->where('end_time', '<', now());
+
+            return;
+        }
+
+        if ($settings->qa_lock_mode === 'lock_for_duration') {
+            if ($settings->qa_lock_minutes === 0) {
+                $query->whereRaw('1 = 0');
+
+                return;
+            }
+
+            $query->where('end_time', '<', now())
+                ->where('end_time', '>', now()->subMinutes($settings->qa_lock_minutes));
+
+            return;
+        }
+
+        $query->where('end_time', '<', now()->subMinutes($settings->qa_lock_minutes));
     }
 
     private function whereActive(Builder $query): void
     {
+        $settings = $this->settings();
         $query->where('status', '!=', 'Cancelled')
-            ->where('end_time', '>=', now());
+            ->where('start_time', '<=', now())
+            ->where('end_time', '>=', $settings->qa_lock_mode === 'grace_then_lock'
+                ? now()->subMinutes($settings->qa_lock_minutes)
+                : now());
     }
 
     private function expiredScheduleForScope(Closure $scope): ?QaSchedule
@@ -221,13 +313,60 @@ class QaScheduleLockService
             ->where('status', '!=', 'Cancelled')
             ->where($scope);
 
-        if ((clone $schedules)->where('end_time', '>=', now())->exists()) {
+        if ((clone $schedules)->where(fn (Builder $query) => $this->whereActive($query))->exists()) {
             return null;
         }
 
         return (clone $schedules)
-            ->where('end_time', '<', now())
+            ->where(fn (Builder $query) => $this->whereExpired($query))
             ->orderByDesc('end_time')
             ->first();
+    }
+
+    private function isScheduleLocked(?QaSchedule $schedule): bool
+    {
+        if ($schedule === null || $schedule->status === 'Cancelled' || $schedule->end_time === null) {
+            return false;
+        }
+
+        $settings = $this->settings();
+        $now = now();
+
+        if ($settings->qa_lock_mode === 'lock_for_duration') {
+            return $settings->qa_lock_minutes > 0
+                && $now->greaterThan($schedule->end_time)
+                && $now->lessThan($schedule->end_time->copy()->addMinutes($settings->qa_lock_minutes));
+        }
+
+        if ($settings->qa_lock_mode === 'follow_schedule') {
+            return $now->greaterThan($schedule->end_time);
+        }
+
+        return $now->greaterThan($schedule->end_time->copy()->addMinutes($settings->qa_lock_minutes));
+    }
+
+    private function isScheduleInAccessPeriod(QaSchedule $schedule): bool
+    {
+        if ($schedule->status === 'Cancelled' || $schedule->end_time === null) {
+            return false;
+        }
+
+        if ($schedule->start_time !== null && now()->lessThan($schedule->start_time)) {
+            return false;
+        }
+
+        $settings = $this->settings();
+        $accessEndsAt = $schedule->end_time->copy();
+
+        if ($settings->qa_lock_mode === 'grace_then_lock') {
+            $accessEndsAt->addMinutes($settings->qa_lock_minutes);
+        }
+
+        return now()->lessThanOrEqualTo($accessEndsAt);
+    }
+
+    private function settings(): AutomatedReminderSetting
+    {
+        return $this->currentSettings ??= AutomatedReminderSetting::current();
     }
 }
