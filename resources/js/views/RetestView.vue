@@ -25,6 +25,8 @@
       </div>
     </div>
 
+    <QaLockStatusBanner :module-id="filters.module_id" @unlocked="fetchRetests" />
+
     <!-- Quick Retest Summary Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between">
@@ -78,11 +80,28 @@
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Aplikasi</label>
           <select
             v-model="filters.application_id"
-            @change="fetchRetests"
+            @change="filters.module_id = ''; fetchRetests()"
             class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">Semua Aplikasi</option>
             <option v-for="app in apps" :key="app.id" :value="app.id">{{ app.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Modul QA</label>
+          <select
+            v-model="filters.module_id"
+            @change="fetchRetests"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Semua Modul</option>
+            <option
+              v-for="module in filterModuleOptions"
+              :key="module.id"
+              :value="module.id"
+            >
+              {{ applicationName(module.application_id) }} · {{ module.name }}
+            </option>
           </select>
         </div>
         <div>
@@ -284,8 +303,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import api from '../api';
+import { showAlert } from '../dialog';
 import { useAuth } from '../auth';
 import { downloadAuthenticatedFile } from '../utils/files';
 import Badge from '../components/Badge.vue';
@@ -293,6 +313,7 @@ import Modal from '../components/Modal.vue';
 import EmptyState from '../components/EmptyState.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
+import QaLockStatusBanner from '../components/QaLockStatusBanner.vue';
 
 const { hasFeatureAccess } = useAuth();
 
@@ -300,7 +321,7 @@ const downloadRetestEvidence = async (evidence) => {
   try {
     await downloadAuthenticatedFile('retest', evidence.id, evidence.original_name);
   } catch (error) {
-    alert(error.response?.data?.message || 'Gagal mengunduh bukti retest.');
+    void showAlert(error.response?.data?.message || 'Gagal mengunduh bukti retest.', { title: 'Unduhan Gagal' });
   }
 };
 const loading = ref(false);
@@ -308,13 +329,19 @@ const saving = ref(false);
 const retests = ref([]);
 const readyBugs = ref([]);
 const apps = ref([]);
+const filterModules = ref([]);
 
 const filters = reactive({
   status: '',
   application_id: '',
+  module_id: '',
   start_date: '',
   end_date: '',
 });
+const filterModuleOptions = computed(() => filterModules.value.filter((module) => (
+  !filters.application_id || Number(module.application_id) === Number(filters.application_id)
+)));
+const applicationName = (applicationId) => apps.value.find((app) => Number(app.id) === Number(applicationId))?.name || 'Aplikasi';
 
 const showRetestModal = ref(false);
 const retestFiles = ref([]);
@@ -336,11 +363,13 @@ const getRetestSchedule = (retest) => retest.schedule || retest.bug?.schedule ||
 
 const fetchLookups = async () => {
   try {
-    const [appRes, bugRes] = await Promise.all([
+    const [appRes, bugRes, moduleRes] = await Promise.all([
       api.get('/cascade/apps'),
       api.get('/bugs?per_page=50'),
+      api.get('/cascade/modules'),
     ]);
     apps.value = appRes.data;
+    filterModules.value = moduleRes.data;
     readyBugs.value = bugRes.data.data.filter((bug) => bug.can_manage_qa);
   } catch (e) {}
 };
@@ -360,6 +389,7 @@ const fetchRetests = async () => {
 const resetFilters = () => {
   filters.status = '';
   filters.application_id = '';
+  filters.module_id = '';
   filters.start_date = '';
   filters.end_date = '';
   fetchRetests();
@@ -398,7 +428,7 @@ const submitRetest = async () => {
     fetchRetests();
     fetchLookups();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan hasil retesting.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan hasil retesting.', { title: 'Retest Gagal Disimpan' });
   } finally {
     saving.value = false;
   }

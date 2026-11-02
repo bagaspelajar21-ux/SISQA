@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\ActivityLogController;
+use App\Http\Controllers\Api\AdminQaSettingsController;
 use App\Http\Controllers\Api\AdminReminderController;
+use App\Http\Controllers\Api\AdminWorkLogAnalysisController;
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\ApplicationFlowController;
 use App\Http\Controllers\Api\ApplicationMenuController;
@@ -9,10 +11,12 @@ use App\Http\Controllers\Api\ApplicationModuleController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BugController;
 use App\Http\Controllers\Api\CascadeController;
+use App\Http\Controllers\Api\DailyMotivationController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\FileAccessController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PersonalWorkLogController;
+use App\Http\Controllers\Api\QaAccessStatusController;
 use App\Http\Controllers\Api\QaReportController;
 use App\Http\Controllers\Api\QaScheduleController;
 use App\Http\Controllers\Api\RetestController;
@@ -32,10 +36,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/user/profile', [AuthController::class, 'updateProfile']);
     Route::put('/user/password', [AuthController::class, 'updatePassword']);
     Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/daily-motivation/today', [DailyMotivationController::class, 'today']);
     Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
     Route::patch('/notifications/read-all', [NotificationController::class, 'markAllRead']);
 
     Route::middleware('permission')->group(function () {
+        Route::get('/qa-access/status', [QaAccessStatusController::class, 'show']);
         Route::get('/files/{type}/{id}/download', [FileAccessController::class, 'download']);
         Route::get('/files/{type}/{id}/preview', [FileAccessController::class, 'preview']);
         Route::get('/files/{type}/{id}/content-preview', [FileAccessController::class, 'contentPreview']);
@@ -97,8 +103,20 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Admin Only
     Route::middleware('admin')->group(function () {
+        Route::get('/admin/qa-settings', [AdminQaSettingsController::class, 'show']);
+        Route::put('/admin/qa-settings', [AdminQaSettingsController::class, 'update']);
+        Route::post('/admin/qa-settings/motivation-image', [AdminQaSettingsController::class, 'uploadMotivationImage']);
+        Route::delete('/admin/qa-settings/motivation-image', [AdminQaSettingsController::class, 'deleteMotivationImage']);
+        Route::post('/admin/work-log-analysis/ai', [AdminWorkLogAnalysisController::class, 'analyzeWithAi'])
+            ->middleware('throttle:5,1');
+        Route::get('/admin/work-log-analysis/summary', [AdminWorkLogAnalysisController::class, 'summary']);
+        Route::get('/admin/work-log-analysis/export/pdf', [AdminWorkLogAnalysisController::class, 'exportPdf']);
+        Route::get('/admin/work-log-analysis/export/excel', [AdminWorkLogAnalysisController::class, 'exportExcel']);
+
         Route::get('/admin/reminders', [AdminReminderController::class, 'index']);
         Route::get('/admin/reminders/recipients', [AdminReminderController::class, 'recipients']);
+        Route::get('/admin/reminders/automated-settings', [AdminReminderController::class, 'automatedSettings']);
+        Route::put('/admin/reminders/automated-settings', [AdminReminderController::class, 'updateAutomatedSettings']);
         Route::post('/admin/reminders', [AdminReminderController::class, 'store']);
         Route::delete('/admin/reminders/{reminder}', [AdminReminderController::class, 'destroy']);
 

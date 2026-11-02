@@ -14,6 +14,103 @@
       </div>
     </section>
 
+    <section class="rounded-2xl border border-sky-200 bg-white p-5 shadow-xs">
+      <form class="space-y-5" @submit.prevent="saveAutomatedSettings">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-900">Pengingat otomatis harian &amp; mingguan</h3>
+            <p class="mt-1 text-[11px] text-slate-500">
+              Notifikasi tersimpan di SISQA untuk semua pengguna aktif, termasuk pengguna yang sedang tidak membuka aplikasi. Zona waktu: WIB.
+            </p>
+          </div>
+          <span class="w-fit rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-800">
+            Otomatis · Asia/Jakarta
+          </span>
+        </div>
+
+        <div v-if="settingsLoading" class="rounded-xl bg-slate-50 p-4 text-xs text-slate-500">
+          Memuat pengaturan otomatis...
+        </div>
+        <div v-else class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
+            <span>
+              <span class="block text-xs font-bold text-slate-800">Pengingat mulai QA</span>
+              <span class="block text-[10px] text-slate-500">Setiap hari</span>
+            </span>
+            <span class="flex items-center gap-2">
+              <input v-model="automatedSettings.qa_enabled" type="checkbox" class="h-4 w-4 accent-blue-600" />
+              <input v-model="automatedSettings.qa_time" type="time" required class="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+            </span>
+          </label>
+
+          <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
+            <span>
+              <span class="block text-xs font-bold text-slate-800">Pengingat report harian</span>
+              <span class="block text-[10px] text-slate-500">Setiap hari</span>
+            </span>
+            <span class="flex items-center gap-2">
+              <input v-model="automatedSettings.daily_report_enabled" type="checkbox" class="h-4 w-4 accent-blue-600" />
+              <input v-model="automatedSettings.daily_report_time" type="time" required class="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+            </span>
+          </label>
+
+          <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
+            <span>
+              <span class="block text-xs font-bold text-slate-800">Pengingat report mingguan</span>
+              <span class="block text-[10px] text-slate-500">Setiap hari Sabtu</span>
+            </span>
+            <span class="flex items-center gap-2">
+              <input v-model="automatedSettings.weekly_report_enabled" type="checkbox" class="h-4 w-4 accent-blue-600" />
+              <input v-model="automatedSettings.weekly_report_time" type="time" required class="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+            </span>
+          </label>
+
+          <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
+            <span>
+              <span class="block text-xs font-bold text-slate-800">Pengingat report bulanan</span>
+              <span class="block text-[10px] text-slate-500">Sabtu pertama setiap bulan</span>
+            </span>
+            <span class="flex items-center gap-2">
+              <input v-model="automatedSettings.monthly_report_enabled" type="checkbox" class="h-4 w-4 accent-blue-600" />
+              <input v-model="automatedSettings.monthly_report_time" type="time" required class="rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+            </span>
+          </label>
+        </div>
+
+        <div v-if="!settingsLoading" class="grid grid-cols-1 gap-3 sm:grid-cols-[auto_1fr]">
+          <label class="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs font-bold text-amber-900">
+            <input v-model="automatedSettings.motivation_enabled" type="checkbox" class="mt-0.5 h-4 w-4 accent-amber-600" />
+            <span>
+              <span class="block">Sertakan kata motivasi</span>
+              <span class="mt-0.5 block text-[10px] font-normal text-amber-800">Ditambahkan di setiap pengingat otomatis.</span>
+            </span>
+          </label>
+          <label class="text-[11px] font-bold text-slate-600">
+            Pesan motivasi
+            <textarea
+              v-model.trim="automatedSettings.motivation_message"
+              maxlength="500"
+              rows="2"
+              required
+              class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-normal focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="Contoh: Semangat QA! Setiap bug yang ditemukan meningkatkan kualitas produk."
+            ></textarea>
+          </label>
+        </div>
+
+        <p v-if="settingsError" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{{ settingsError }}</p>
+        <p v-if="settingsSuccess" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{{ settingsSuccess }}</p>
+
+        <button
+          type="submit"
+          :disabled="settingsLoading || settingsSaving"
+          class="cursor-pointer rounded-xl bg-sky-700 px-5 py-2.5 text-xs font-extrabold text-white shadow-md transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {{ settingsSaving ? 'Menyimpan...' : 'Simpan Pengaturan Otomatis' }}
+        </button>
+      </form>
+    </section>
+
     <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
       <div class="space-y-4">
         <div>
@@ -171,6 +268,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
 import api from '../api';
+import { showConfirm } from '../dialog';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
 const presets = [
@@ -211,6 +309,22 @@ const loading = ref(false);
 const saving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
+const settingsLoading = ref(false);
+const settingsSaving = ref(false);
+const settingsError = ref('');
+const settingsSuccess = ref('');
+const automatedSettings = reactive({
+  qa_enabled: true,
+  qa_time: '08:00',
+  daily_report_enabled: true,
+  daily_report_time: '16:00',
+  weekly_report_enabled: true,
+  weekly_report_time: '16:00',
+  monthly_report_enabled: false,
+  monthly_report_time: '16:00',
+  motivation_enabled: true,
+  motivation_message: '',
+});
 
 const applyPreset = (preset) => {
   form.title = preset.title;
@@ -239,6 +353,39 @@ const fetchRecipients = async () => {
   }
 };
 
+const fetchAutomatedSettings = async () => {
+  settingsLoading.value = true;
+  settingsError.value = '';
+  try {
+    const response = await api.get('/admin/reminders/automated-settings');
+    Object.assign(automatedSettings, response.data.settings, {
+      qa_time: response.data.settings.qa_time.slice(0, 5),
+      daily_report_time: response.data.settings.daily_report_time.slice(0, 5),
+      weekly_report_time: response.data.settings.weekly_report_time.slice(0, 5),
+      monthly_report_time: response.data.settings.monthly_report_time.slice(0, 5),
+    });
+  } catch (error) {
+    settingsError.value = error.response?.data?.message || 'Pengaturan pengingat otomatis gagal dimuat.';
+  } finally {
+    settingsLoading.value = false;
+  }
+};
+
+const saveAutomatedSettings = async () => {
+  settingsSaving.value = true;
+  settingsError.value = '';
+  settingsSuccess.value = '';
+  try {
+    const response = await api.put('/admin/reminders/automated-settings', automatedSettings);
+    settingsSuccess.value = response.data.message;
+    await fetchAutomatedSettings();
+  } catch (error) {
+    settingsError.value = error.response?.data?.message || 'Pengaturan pengingat otomatis gagal disimpan.';
+  } finally {
+    settingsSaving.value = false;
+  }
+};
+
 const createReminder = async () => {
   saving.value = true;
   errorMessage.value = '';
@@ -264,7 +411,10 @@ const createReminder = async () => {
 };
 
 const cancelReminder = async (reminder) => {
-  if (!window.confirm(`Batalkan pengingat "${reminder.title}"?`)) return;
+  if (!await showConfirm(`Batalkan pengingat "${reminder.title}"?`, {
+    title: 'Batalkan Pengingat',
+    confirmText: 'Ya, batalkan',
+  })) return;
   errorMessage.value = '';
   try {
     await api.delete(`/admin/reminders/${reminder.id}`);
@@ -288,5 +438,6 @@ const formatDateTime = (value) => {
 onMounted(() => {
   fetchRecipients();
   fetchReminders();
+  fetchAutomatedSettings();
 });
 </script>

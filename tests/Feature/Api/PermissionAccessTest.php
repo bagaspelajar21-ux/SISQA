@@ -2,6 +2,9 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Application;
+use App\Models\ApplicationMenu;
+use App\Models\ApplicationModule;
 use App\Models\User;
 use App\Services\RolePermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -115,5 +118,49 @@ class PermissionAccessTest extends TestCase
             'features' => ['not_a_real_feature'],
         ])->assertUnprocessable()
             ->assertJsonValidationErrors(['menus.0', 'features.0']);
+    }
+
+    public function test_new_master_submenu_appears_unchecked_and_can_be_granted_to_users(): void
+    {
+        $application = Application::create([
+            'name' => 'Aplikasi Inventori',
+            'code' => 'APP-INVENTORY-ACCESS',
+        ]);
+        $module = ApplicationModule::create([
+            'application_id' => $application->id,
+            'name' => 'Persediaan',
+            'code' => 'MODULE-INVENTORY-ACCESS',
+        ]);
+        $menu = ApplicationMenu::create([
+            'application_id' => $application->id,
+            'module_id' => $module->id,
+            'name' => 'Data Stok',
+            'code' => 'MENU-STOCK-ACCESS',
+            'url_or_route' => 'https://inventory.example.test/stock',
+        ]);
+        $admin = User::factory()->create(['role' => 'admin']);
+        Sanctum::actingAs($admin);
+        $menuKey = 'master-menu:'.$menu->id;
+
+        $permissionsResponse = $this->getJson('/api/role-permissions')->assertOk();
+        $this->assertSame(
+            'Aplikasi Inventori / Persediaan / Data Stok',
+            collect($permissionsResponse->json('definitions.menus'))->firstWhere('key', $menuKey)['label'],
+        );
+        $this->assertNotContains($menuKey, $permissionsResponse->json('role_user.menus'));
+
+        $rolePermissions = RolePermissionService::defaultUserPermissions();
+        $this->putJson('/api/role-permissions', [
+            'menus' => [...$rolePermissions['menus'], $menuKey],
+            'features' => $rolePermissions['features'],
+        ])->assertOk();
+
+        $user = User::factory()->create(['role' => 'user']);
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/user')
+            ->assertOk()
+            ->assertJsonPath('user.permissions.master_menus.0.key', $menuKey)
+            ->assertJsonPath('user.permissions.master_menus.0.url_or_route', 'https://inventory.example.test/stock');
     }
 }

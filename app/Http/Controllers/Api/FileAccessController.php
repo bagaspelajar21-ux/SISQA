@@ -82,7 +82,7 @@ class FileAccessController extends Controller
         };
 
         if ($lockedSchedule !== null) {
-            abort(403, "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.");
+            abort(403, $scheduleLock->lockMessage($lockedSchedule));
         }
     }
 

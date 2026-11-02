@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Application;
+use App\Models\ApplicationMenu;
+use App\Models\ApplicationModule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ApplicationController extends Controller
 {
@@ -111,20 +114,38 @@ class ApplicationController extends Controller
     public function destroy(Application $application): JsonResponse
     {
         $name = $application->name;
-        $application->delete();
+        $moduleCount = 0;
+        $menuCount = 0;
 
-        ActivityLog::record(
-            'application_deleted',
-            'Master Data',
-            "Admin menghapus aplikasi: {$name}",
-            'Application',
-            $application->id,
-            ['name' => $name],
-            null
-        );
+        DB::transaction(function () use ($application, $name, &$moduleCount, &$menuCount): void {
+            $moduleCount = ApplicationModule::query()
+                ->where('application_id', $application->id)
+                ->count();
+            $menuCount = ApplicationMenu::query()
+                ->where('application_id', $application->id)
+                ->count();
+
+            ApplicationMenu::query()
+                ->where('application_id', $application->id)
+                ->delete();
+            ApplicationModule::query()
+                ->where('application_id', $application->id)
+                ->delete();
+            $application->delete();
+
+            ActivityLog::record(
+                'application_deleted',
+                'Master Data',
+                "Admin menghapus aplikasi: {$name} beserta {$moduleCount} modul dan {$menuCount} sub-menu.",
+                'Application',
+                $application->id,
+                ['name' => $name, 'modules_count' => $moduleCount, 'menus_count' => $menuCount],
+                null
+            );
+        });
 
         return response()->json([
-            'message' => 'Aplikasi berhasil dihapus.',
+            'message' => "Aplikasi berhasil dihapus beserta {$moduleCount} modul dan {$menuCount} sub-menu.",
         ]);
     }
 

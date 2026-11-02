@@ -5,13 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\QaSchedule;
+use App\Services\QaScheduleLockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class QaScheduleController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $dateRange = $request->validate([
             'start_date' => ['nullable', 'date_format:Y-m-d'],
@@ -53,15 +54,17 @@ class QaScheduleController extends Controller
             ->paginate($request->input('per_page', 15));
 
         // Append computed progress & auto-detect overdue/expired schedule time
-        $schedules->getCollection()->transform(function ($item) {
+        $schedules->getCollection()->transform(function ($item) use ($scheduleLock) {
             $isExpired = $item->end_time && now()->gt($item->end_time);
             if ($isExpired && ! in_array($item->status, ['Completed', 'Cancelled', 'Overdue'])) {
                 $item->update(['status' => 'Overdue']);
                 $item->status = 'Overdue';
             }
+            $isLocked = $scheduleLock->expiredSchedule($item) !== null;
             $item->progress_info = $item->progress;
             $item->is_expired = $isExpired;
-            $item->can_continue_qa = ! $isExpired && ! in_array($item->status, ['Completed', 'Cancelled', 'Overdue']);
+            $item->can_continue_qa = ! in_array($item->status, ['Completed', 'Cancelled'])
+                && ($request->user()->isAdmin() || ! $isLocked);
 
             return $item;
         });
@@ -157,9 +160,7 @@ class QaScheduleController extends Controller
     {
         $validated = $request->validate([
             'title' => 'required|string|max:255',
-            'application_id' => 'required|exists:applications,id',
-            'module_id' => 'nullable|exists:application_modules,id',
-            'menu_id' => 'nullable|exists:application_menus,id',
+            ...$this->masterDataValidationRules($request),
             'application_flow_id' => 'nullable|exists:application_flows,id',
             'testing_type' => ['required', Rule::in(['Daily', 'Weekly', 'Regression', 'Retesting', 'Release', 'Smoke Testing'])],
             'tester_id' => 'nullable|exists:users,id',
@@ -208,7 +209,7 @@ class QaScheduleController extends Controller
         ], 201);
     }
 
-    public function show(QaSchedule $schedule): JsonResponse
+    public function show(Request $request, QaSchedule $schedule, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $isExpired = $schedule->end_time && now()->gt($schedule->end_time);
         if ($isExpired && ! in_array($schedule->status, ['Completed', 'Cancelled', 'Overdue'])) {
@@ -220,7 +221,8 @@ class QaScheduleController extends Controller
         $data = $schedule->toArray();
         $data['progress_info'] = $schedule->progress;
         $data['is_expired'] = $isExpired;
-        $data['can_continue_qa'] = ! $isExpired && ! in_array($schedule->status, ['Completed', 'Cancelled', 'Overdue']);
+        $data['can_continue_qa'] = ! in_array($schedule->status, ['Completed', 'Cancelled'])
+            && ($request->user()->isAdmin() || $scheduleLock->expiredSchedule($schedule) === null);
 
         return response()->json(['schedule' => $data]);
     }
@@ -235,9 +237,7 @@ class QaScheduleController extends Controller
 
         $validated = $request->validate([
             'title' => 'required|string|max:255',
-            'application_id' => 'required|exists:applications,id',
-            'module_id' => 'nullable|exists:application_modules,id',
-            'menu_id' => 'nullable|exists:application_menus,id',
+            ...$this->masterDataValidationRules($request),
             'application_flow_id' => 'nullable|exists:application_flows,id',
             'testing_type' => ['required', Rule::in(['Daily', 'Weekly', 'Regression', 'Retesting', 'Release', 'Smoke Testing'])],
             'tester_id' => 'nullable|exists:users,id',
@@ -301,5 +301,40 @@ class QaScheduleController extends Controller
         return response()->json([
             'message' => 'Jadwal QA berhasil dihapus.',
         ]);
+    }
+
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    private function masterDataValidationRules(Request $request): array
+    {
+        return [
+            'application_id' => [
+                'required',
+                'integer',
+                Rule::exists('applications', 'id')
+                    ->where(fn ($query) => $query->where('is_active', true)->whereNull('deleted_at')),
+            ],
+            'module_id' => [
+                'nullable',
+                'integer',
+                'required_with:menu_id',
+                Rule::exists('application_modules', 'id')
+                    ->where(fn ($query) => $query
+                        ->where('application_id', $request->input('application_id'))
+                        ->where('is_active', true)
+                        ->whereNull('deleted_at')),
+            ],
+            'menu_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('application_menus', 'id')
+                    ->where(fn ($query) => $query
+                        ->where('application_id', $request->input('application_id'))
+                        ->where('module_id', $request->input('module_id'))
+                        ->where('is_active', true)
+                        ->whereNull('deleted_at')),
+            ],
+        ];
     }
 }

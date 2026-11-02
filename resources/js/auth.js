@@ -33,7 +33,10 @@ export const useAuth = () => {
         if (u.role === 'admin') return true;
         if (menuPath === '/profile') return true;
         const menus = u.permissions?.menus;
-        return Array.isArray(menus) && menus.includes(menuPath);
+        const hasConfiguredMenu = Array.isArray(menus) && menus.includes(menuPath);
+        const hasMasterMenu = Array.isArray(u.permissions?.master_menus)
+            && u.permissions.master_menus.some((menu) => menu.url_or_route === menuPath);
+        return hasConfiguredMenu || hasMasterMenu;
     };
 
     const getFirstAllowedPath = (customUser = null) => {

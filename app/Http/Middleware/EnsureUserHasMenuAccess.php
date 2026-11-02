@@ -85,6 +85,7 @@ class EnsureUserHasMenuAccess
         }
 
         return match (true) {
+            $uri === 'qa-access/status' => ['/test-cases', '/bugs', '/retests'],
             $uri === 'dashboard' => ['/'],
             str_starts_with($uri, 'schedules') => ['/schedules'],
             str_starts_with($uri, 'test-cases') => ['/test-cases'],
@@ -106,7 +107,12 @@ class EnsureUserHasMenuAccess
         $isWrite = in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true);
 
         if (str_starts_with($uri, 'schedules') && $isWrite) {
-            return 'create_schedule';
+            return match ($method) {
+                'POST' => 'add_schedule',
+                'PUT', 'PATCH' => 'update_schedule',
+                'DELETE' => 'delete_schedule',
+                default => null,
+            };
         }
 
         if (str_starts_with($uri, 'test-cases/excel-template') || str_starts_with($uri, 'test-cases/import-excel')) {
@@ -117,8 +123,8 @@ class EnsureUserHasMenuAccess
             return 'execute_test';
         }
 
-        if (preg_match('#^test-cases(?:/\\{test_?case\\})?$#', $uri) === 1 && $isWrite) {
-            return 'create_test';
+        if ($uri === 'test-cases' && $method === 'POST') {
+            return 'add_test';
         }
 
         if (str_starts_with($uri, 'bugs/excel-template') || str_starts_with($uri, 'bugs/import-excel')) {
@@ -129,16 +135,44 @@ class EnsureUserHasMenuAccess
             return 'create_bug';
         }
 
-        if ((str_starts_with($uri, 'bugs/') || $uri === 'bugs') && $isWrite) {
-            return 'edit_bug';
+        if (str_starts_with($uri, 'test-cases/') && preg_match('#^test-cases/\\{test_?case\\}$#', $uri) === 1) {
+            return match ($method) {
+                'PUT', 'PATCH' => 'update_test',
+                'DELETE' => 'delete_test',
+                default => null,
+            };
+        }
+
+        if (str_starts_with($uri, 'bugs/') && str_ends_with($uri, '/evidences')) {
+            return 'update_bug';
+        }
+
+        if (preg_match('#^bugs/\\{bug\\}$#', $uri) === 1) {
+            return match ($method) {
+                'PUT', 'PATCH' => 'update_bug',
+                'DELETE' => 'delete_bug',
+                default => null,
+            };
         }
 
         if ($uri === 'retests' && $method === 'POST') {
             return 'create_retest';
         }
 
-        if (str_starts_with($uri, 'flows') && $isWrite) {
-            return 'manage_flow';
+        if ($uri === 'flows' && $method === 'POST') {
+            return 'add_flow';
+        }
+
+        if (preg_match('#^flows/\\{flow\\}$#', $uri) === 1) {
+            return match ($method) {
+                'PUT', 'PATCH' => 'update_flow',
+                'DELETE' => 'delete_flow',
+                default => null,
+            };
+        }
+
+        if (str_starts_with($uri, 'flows/') && str_contains($uri, '/files')) {
+            return $method === 'DELETE' ? 'delete_flow' : 'update_flow';
         }
 
         if (str_starts_with($uri, 'reports/export')) {

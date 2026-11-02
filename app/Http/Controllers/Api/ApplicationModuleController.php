@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\ApplicationMenu;
 use App\Models\ApplicationModule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ApplicationModuleController extends Controller
 {
@@ -100,20 +102,31 @@ class ApplicationModuleController extends Controller
     public function destroy(ApplicationModule $module): JsonResponse
     {
         $name = $module->name;
-        $module->delete();
+        $menuCount = DB::transaction(function () use ($module, $name): int {
+            $menuCount = ApplicationMenu::query()
+                ->where('module_id', $module->id)
+                ->count();
 
-        ActivityLog::record(
-            'module_deleted',
-            'Master Data',
-            "Admin menghapus modul: {$name}",
-            'ApplicationModule',
-            $module->id,
-            ['name' => $name],
-            null
-        );
+            ApplicationMenu::query()
+                ->where('module_id', $module->id)
+                ->delete();
+            $module->delete();
+
+            ActivityLog::record(
+                'module_deleted',
+                'Master Data',
+                "Admin menghapus modul: {$name} beserta {$menuCount} sub-menu.",
+                'ApplicationModule',
+                $module->id,
+                ['name' => $name, 'menus_count' => $menuCount],
+                null
+            );
+
+            return $menuCount;
+        });
 
         return response()->json([
-            'message' => 'Modul berhasil dihapus.',
+            'message' => "Modul berhasil dihapus beserta {$menuCount} sub-menu.",
         ]);
     }
 

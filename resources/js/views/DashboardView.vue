@@ -204,29 +204,39 @@
           </p>
         </div>
 
-        <!-- Quick Navigation Pills (Only shown if permitted by Role Checklist) -->
-        <div v-if="canUseQuickActions" class="flex flex-wrap items-center gap-2.5 shrink-0">
-          <router-link
-            v-if="hasMenuAccess('/test-cases') && hasFeatureAccess('execute_test')"
-            to="/test-cases"
-            class="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-xs font-bold text-white transition-all shadow-sm"
-          >
-            📝 Eksekusi Test
-          </router-link>
-          <router-link
-            v-if="hasMenuAccess('/bugs') && hasFeatureAccess('create_bug')"
-            to="/bugs"
-            class="px-4 py-2.5 rounded-2xl bg-rose-500/25 hover:bg-rose-500/35 backdrop-blur-md border border-rose-400/35 text-xs font-bold text-rose-100 transition-all shadow-sm"
-          >
-            🐞 Lapor Bug
-          </router-link>
-          <router-link
-            v-if="hasMenuAccess('/reports/wa')"
-            to="/reports/wa"
-            class="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-xs font-extrabold text-white shadow-lg shadow-emerald-600/30 transition-all"
-          >
-            💬 Report WA Harian
-          </router-link>
+        <div class="flex shrink-0 flex-col gap-3 lg:items-end">
+          <div class="rounded-2xl border border-white/15 bg-slate-950/45 px-4 py-3 text-right shadow-lg backdrop-blur-md">
+            <div class="font-mono text-2xl font-black tabular-nums tracking-wider text-white sm:text-3xl">
+              {{ currentTime }}
+              <span class="ml-1 text-[10px] font-extrabold tracking-normal text-sky-300">WIB</span>
+            </div>
+            <div class="mt-1 text-[11px] font-semibold text-slate-300">{{ currentDate }}</div>
+          </div>
+
+          <!-- Quick Navigation Pills (Only shown if permitted by Role Checklist) -->
+          <div v-if="canUseQuickActions" class="flex flex-wrap items-center gap-2.5 lg:justify-end">
+            <router-link
+              v-if="hasMenuAccess('/test-cases') && hasFeatureAccess('execute_test')"
+              to="/test-cases"
+              class="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-xs font-bold text-white transition-all shadow-sm"
+            >
+              📝 Eksekusi Test
+            </router-link>
+            <router-link
+              v-if="hasMenuAccess('/bugs') && hasFeatureAccess('create_bug')"
+              to="/bugs"
+              class="px-4 py-2.5 rounded-2xl bg-rose-500/25 hover:bg-rose-500/35 backdrop-blur-md border border-rose-400/35 text-xs font-bold text-rose-100 transition-all shadow-sm"
+            >
+              🐞 Lapor Bug
+            </router-link>
+            <router-link
+              v-if="hasMenuAccess('/reports/wa')"
+              to="/reports/wa"
+              class="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-xs font-extrabold text-white shadow-lg shadow-emerald-600/30 transition-all"
+            >
+              💬 Report WA Harian
+            </router-link>
+          </div>
         </div>
       </div>
     </div>
@@ -723,7 +733,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import api from '../api';
 import { useAuth } from '../auth';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
@@ -765,6 +775,22 @@ const chartStyle = ref('wave'); // 'wave' (Kurva Modern) or 'capsule' (Kapsul Ha
 const metrics = ref(null);
 const notes = ref({});
 const charts = ref({});
+const clockNow = ref(new Date());
+const currentTime = computed(() => clockNow.value.toLocaleTimeString('id-ID', {
+  timeZone: 'Asia/Jakarta',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+}));
+const currentDate = computed(() => clockNow.value.toLocaleDateString('id-ID', {
+  timeZone: 'Asia/Jakarta',
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+}));
+let clockInterval = null;
 
 const appOptions = ref([]);
 const moduleOptions = ref([]);
@@ -1136,9 +1162,18 @@ const resetFilters = () => {
 };
 
 onMounted(() => {
+  clockInterval = window.setInterval(() => {
+    clockNow.value = new Date();
+  }, 1000);
   fetchCascadeApps();
   fetchUsers();
   fetchDashboardData();
+});
+
+onUnmounted(() => {
+  if (clockInterval !== null) {
+    window.clearInterval(clockInterval);
+  }
 });
 </script>
 

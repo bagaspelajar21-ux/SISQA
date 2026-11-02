@@ -193,6 +193,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import api from '../api';
+import { showAlert, showConfirm } from '../dialog';
 import Modal from '../components/Modal.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
@@ -266,6 +267,7 @@ const openAddSubMenuModal = (m) => {
 const saveSubMenu = async () => {
   try {
     await api.post('/menus', subMenuForm);
+    const addedMenuName = subMenuForm.name.trim();
     showSubMenuModal.value = false;
     await fetchModules();
     if (expandedModuleId.value === selectedModuleForSub.value?.id) {
@@ -274,20 +276,27 @@ const saveSubMenu = async () => {
     } else if (selectedModuleForSub.value) {
       await toggleExpandSubMenus(selectedModuleForSub.value);
     }
+    await showAlert(
+      `Sub-menu "${addedMenuName}" berhasil ditambahkan dan sekarang tersedia di ceklist hak akses. Secara default, aksesnya belum dicentang.`,
+      { title: 'Sub-Menu Ditambahkan', variant: 'success' },
+    );
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan sub-menu.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan sub-menu.', { title: 'Sub-Menu Gagal Disimpan' });
   }
 };
 
 const deleteSubMenu = async (sub, m) => {
-  if (!confirm(`Hapus sub-menu '${sub.name}' dari modul ${m.name}?`)) return;
+  if (!await showConfirm(`Hapus sub-menu '${sub.name}' dari modul ${m.name}?`, {
+    title: 'Hapus Sub-Menu',
+    confirmText: 'Ya, hapus sub-menu',
+  })) return;
   try {
     await api.delete(`/menus/${sub.id}`);
     const res = await api.get(`/cascade/menus?module_id=${m.id}`);
     subMenusList.value = res.data;
     await fetchModules();
   } catch (e) {
-    alert('Gagal menghapus sub-menu.');
+    void showAlert('Gagal menghapus sub-menu.', { title: 'Sub-Menu Gagal Dihapus' });
   }
 };
 
@@ -317,14 +326,21 @@ const saveModule = async () => {
     showModal.value = false;
     fetchModules();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan.', { title: 'Modul Gagal Disimpan' });
   }
 };
 
 const confirmDelete = async (m) => {
-  if (confirm(`Hapus modul '${m.name}'?`)) {
+  if (!await showConfirm(`Hapus modul '${m.name}'?`, {
+    title: 'Hapus Modul',
+    confirmText: 'Ya, hapus modul',
+  })) return;
+
+  try {
     await api.delete(`/modules/${m.id}`);
-    fetchModules();
+    await fetchModules();
+  } catch (e) {
+    void showAlert(e.response?.data?.message || 'Modul gagal dihapus.', { title: 'Modul Gagal Dihapus' });
   }
 };
 

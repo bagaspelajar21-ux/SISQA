@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AdminReminder;
+use App\Models\AutomatedReminderSetting;
 use App\Models\User;
 use App\Services\ReminderDeliveryService;
 use Illuminate\Http\JsonResponse;
@@ -12,6 +13,39 @@ use Illuminate\Validation\Rule;
 
 class AdminReminderController extends Controller
 {
+    public function automatedSettings(): JsonResponse
+    {
+        return response()->json([
+            'settings' => AutomatedReminderSetting::current(),
+            'timezone' => 'Asia/Jakarta',
+        ]);
+    }
+
+    public function updateAutomatedSettings(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'qa_enabled' => ['required', 'boolean'],
+            'qa_time' => ['required', 'date_format:H:i'],
+            'daily_report_enabled' => ['required', 'boolean'],
+            'daily_report_time' => ['required', 'date_format:H:i'],
+            'weekly_report_enabled' => ['required', 'boolean'],
+            'weekly_report_time' => ['required', 'date_format:H:i'],
+            'monthly_report_enabled' => ['required', 'boolean'],
+            'monthly_report_time' => ['required', 'date_format:H:i'],
+            'motivation_enabled' => ['required', 'boolean'],
+            'motivation_message' => ['required', 'string', 'max:500'],
+        ]);
+
+        $settings = AutomatedReminderSetting::current();
+        $settings->fill($validated)->save();
+
+        return response()->json([
+            'message' => 'Pengaturan pengingat otomatis berhasil disimpan.',
+            'settings' => $settings->fresh(),
+            'timezone' => 'Asia/Jakarta',
+        ]);
+    }
+
     public function index(): JsonResponse
     {
         return response()->json([

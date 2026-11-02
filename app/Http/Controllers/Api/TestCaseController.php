@@ -104,7 +104,10 @@ class TestCaseController extends Controller
             return $tc;
         });
 
-        return response()->json($testCases);
+        $response = $testCases->toArray();
+        $response['qa_lock_policy'] = $scheduleLock->policySummary();
+
+        return response()->json($response);
     }
 
     public function store(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
@@ -132,7 +135,7 @@ class TestCaseController extends Controller
                 isset($validated['menu_id']) ? (int) $validated['menu_id'] : null,
             )) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -165,7 +168,7 @@ class TestCaseController extends Controller
         if (! $request->user()->isAdmin()
             && ($lockedSchedule = $scheduleLock->expiredScheduleForTestCase($testCase)) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -189,7 +192,7 @@ class TestCaseController extends Controller
         if (! $request->user()->isAdmin()
             && ($lockedSchedule = $scheduleLock->expiredScheduleForTestCase($testCase)) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -244,7 +247,7 @@ class TestCaseController extends Controller
         if (! $request->user()->isAdmin()
             && ($lockedSchedule = $scheduleLock->expiredScheduleForTestCase($testCase)) !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -274,6 +277,7 @@ class TestCaseController extends Controller
             'status' => ['required', Rule::in(['PASS', 'FAILED', 'PENDING', 'NOT TESTED'])],
             'actual_result' => 'nullable|string',
             'notes' => 'nullable|string',
+            'feature_description' => ['nullable', 'string', 'max:5000'],
             'qa_schedule_id' => 'nullable|exists:qa_schedules,id',
             'evidences' => 'nullable|array',
             'evidences.*' => 'file|max:51200|mimes:png,jpg,jpeg,webp,pdf,mp4',
@@ -302,7 +306,7 @@ class TestCaseController extends Controller
 
         if ($lockedSchedule !== null) {
             return response()->json([
-                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir pada {$lockedSchedule->end_time->format('d/m/Y H:i')}. Aktivitas QA terkunci; hubungi Admin jika perlu melanjutkan.",
+                'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
@@ -313,6 +317,7 @@ class TestCaseController extends Controller
             'status' => $validated['status'],
             'actual_result' => $validated['actual_result'] ?? null,
             'notes' => $validated['notes'] ?? null,
+            'feature_description' => $validated['feature_description'] ?? null,
             'executed_at' => now(),
         ]);
 
@@ -345,6 +350,7 @@ class TestCaseController extends Controller
                 'test_case_code' => $testCase->test_case_code,
                 'status' => $execution->status,
                 'actual_result' => $execution->actual_result,
+                'feature_description' => $execution->feature_description,
             ],
             'Success',
             $user->id

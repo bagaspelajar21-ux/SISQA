@@ -4,9 +4,11 @@ namespace Tests\Feature\Api;
 
 use App\Models\AdminReminder;
 use App\Models\Application;
+use App\Models\AutomatedReminderSetting;
 use App\Models\QaSchedule;
 use App\Models\User;
 use App\Notifications\QaReminderNotification;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -67,8 +69,8 @@ class AdminReminderControllerTest extends TestCase
         $this->assertDatabaseHas('admin_reminders', [
             'id' => $response->json('reminder.id'),
             'created_by' => $admin->id,
-            'delivered_at' => now(),
         ]);
+        $this->assertNotNull(AdminReminder::findOrFail($response->json('reminder.id'))->delivered_at);
         $this->assertSame('Pengingat QA', $recipient->notifications()->sole()->data['title']);
         $this->assertSame(0, $excludedAdmin->notifications()->count());
     }
@@ -147,5 +149,127 @@ class AdminReminderControllerTest extends TestCase
         ])->assertForbidden();
 
         $this->assertDatabaseCount('admin_reminders', 0);
+    }
+
+    public function test_admin_can_view_and_update_automated_reminder_settings(): void
+    {
+        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
+
+        $this->getJson('/api/admin/reminders/automated-settings')
+            ->assertOk()
+            ->assertJsonPath('timezone', 'Asia/Jakarta')
+            ->assertJsonPath('settings.qa_time', '08:00:00')
+            ->assertJsonPath('settings.daily_report_time', '16:00:00')
+            ->assertJsonPath('settings.weekly_report_enabled', true)
+            ->assertJsonPath('settings.monthly_report_enabled', false);
+
+        $this->putJson('/api/admin/reminders/automated-settings', [
+            'qa_enabled' => false,
+            'qa_time' => '08:30',
+            'daily_report_enabled' => true,
+            'daily_report_time' => '16:15',
+            'weekly_report_enabled' => true,
+            'weekly_report_time' => '15:30',
+            'monthly_report_enabled' => true,
+            'monthly_report_time' => '14:00',
+            'motivation_enabled' => true,
+            'motivation_message' => 'Semangat menguji!',
+        ])->assertOk()
+            ->assertJsonPath('settings.qa_enabled', false)
+            ->assertJsonPath('settings.qa_time', '08:30')
+            ->assertJsonPath('settings.monthly_report_enabled', true)
+            ->assertJsonPath('settings.motivation_message', 'Semangat menguji!');
+
+        $this->assertDatabaseHas('automated_reminder_settings', [
+            'id' => 1,
+            'qa_enabled' => false,
+            'qa_time' => '08:30',
+            'monthly_report_enabled' => true,
+            'motivation_message' => 'Semangat menguji!',
+        ]);
+    }
+
+    public function test_non_admin_cannot_read_or_change_automated_reminder_settings(): void
+    {
+        Sanctum::actingAs(User::factory()->create(['role' => 'user']));
+
+        $this->getJson('/api/admin/reminders/automated-settings')->assertForbidden();
+
+        $this->putJson('/api/admin/reminders/automated-settings', [])->assertForbidden();
+
+        $this->assertDatabaseCount('automated_reminder_settings', 1);
+    }
+
+    public function test_rejects_invalid_time_for_automated_reminder_settings(): void
+    {
+        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
+
+        $this->putJson('/api/admin/reminders/automated-settings', [
+            'qa_enabled' => true,
+            'qa_time' => '25:90',
+            'daily_report_enabled' => true,
+            'daily_report_time' => '16:00',
+            'weekly_report_enabled' => true,
+            'weekly_report_time' => '16:00',
+            'monthly_report_enabled' => false,
+            'monthly_report_time' => '16:00',
+            'motivation_enabled' => true,
+            'motivation_message' => 'Semangat!',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['qa_time']);
+    }
+
+    public function test_dispatches_daily_qa_reminder_once_to_active_users_at_configured_wib_time(): void
+    {
+        $activeUser = User::factory()->create(['role' => 'user']);
+        $activeAdmin = User::factory()->create(['role' => 'admin']);
+        $inactiveUser = User::factory()->create(['role' => 'user', 'is_active' => false]);
+        $this->travelTo(Carbon::parse('2026-11-02 08:02:00', 'Asia/Jakarta'));
+
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+
+        $notification = $activeUser->notifications()->sole();
+        $this->assertSame('Waktunya QA harian', $notification->data['title']);
+        $this->assertSame('/schedules', $notification->data['url']);
+        $this->assertStringContainsString('Semangat QA!', $notification->data['message']);
+        $this->assertSame(1, $activeAdmin->notifications()->count());
+        $this->assertSame(0, $inactiveUser->notifications()->count());
+        $this->assertDatabaseCount('automated_reminder_dispatches', 1);
+    }
+
+    public function test_dispatches_weekly_report_every_saturday_and_monthly_report_only_when_enabled(): void
+    {
+        $user = User::factory()->create(['role' => 'user']);
+        $this->travelTo(Carbon::parse('2026-11-07 16:02:00', 'Asia/Jakarta'));
+
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+
+        $weeklyNotification = $user->notifications()
+            ->where('data->title', 'Waktunya report mingguan')
+            ->sole();
+        $this->assertSame('/reports/weekly', $weeklyNotification->data['url']);
+        $this->assertSame(0, $user->notifications()->where('data->title', 'Waktunya report bulanan')->count());
+
+        AutomatedReminderSetting::current()->update(['monthly_report_enabled' => true]);
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+
+        $monthlyNotification = $user->notifications()
+            ->where('data->title', 'Waktunya report bulanan')
+            ->sole();
+        $this->assertSame('/reports/weekly', $monthlyNotification->data['url']);
+        $this->assertSame(3, $user->notifications()->count());
+    }
+
+    public function test_does_not_dispatch_automated_reminders_when_they_are_disabled(): void
+    {
+        $user = User::factory()->create(['role' => 'user']);
+        AutomatedReminderSetting::current()->update(['qa_enabled' => false]);
+        $this->travelTo(Carbon::parse('2026-11-02 08:02:00', 'Asia/Jakarta'));
+
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+
+        $this->assertSame(0, $user->notifications()->count());
+        $this->assertDatabaseCount('automated_reminder_dispatches', 0);
     }
 }

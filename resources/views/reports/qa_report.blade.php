@@ -199,6 +199,9 @@
                 <th style="width: 16%;">PASS</th>
                 <th style="width: 16%;">FAIL</th>
                 <th style="width: 16%;">NOT TEST</th>
+                <th style="text-align: left;">Aplikasi</th>
+                <th style="text-align: left;">Menu</th>
+                <th style="text-align: left;">Fitur / Keterangan</th>
             </tr>
         </thead>
         <tbody>
@@ -210,10 +213,13 @@
                 <td style="text-align: center; color: #166534;">{{ $module['passed_tc'] }}</td>
                 <td style="text-align: center; color: #991B1B;">{{ $module['failed_tc'] }}</td>
                 <td style="text-align: center;">{{ $module['not_tested_tc'] }}</td>
+                <td>{{ $module['application_name'] }}</td>
+                <td>{{ $module['menu_name'] }}</td>
+                <td>{{ $module['feature_description'] ?: '-' }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="6" style="text-align: center; color: #94A3B8;">Tidak ada test case pada periode ini.</td>
+                <td colspan="9" style="text-align: center; color: #94A3B8;">Tidak ada test case pada periode ini.</td>
             </tr>
             @endforelse
             <tr class="module-summary-total">
@@ -233,11 +239,15 @@
             <tr>
                 <th style="width: 4%;">No</th>
                 <th style="width: 12%;">Kode TC</th>
-                <th style="width: 16%;">Aplikasi & Modul</th>
+                <th style="width: 10%;">Aplikasi</th>
+                <th style="width: 10%;">Modul</th>
+                <th style="width: 10%;">Menu</th>
                 <th>Judul Skenario</th>
-                <th style="width: 10%;">Status</th>
-                <th style="width: 14%;">Tester</th>
-                <th style="width: 14%;">Waktu</th>
+                <th style="width: 17%;">Fitur / Keterangan</th>
+                <th style="width: 8%;">Status QA</th>
+                <th style="width: 10%;">Tester</th>
+                <th style="width: 10%;">Waktu</th>
+                <th style="width: 16%;">Hasil Aktual</th>
             </tr>
         </thead>
         <tbody>
@@ -245,8 +255,11 @@
             <tr>
                 <td style="text-align: center;">{{ $idx + 1 }}</td>
                 <td style="font-weight: bold;">{{ $exec->testCase?->test_case_code }}</td>
-                <td>{{ $exec->testCase?->application?->name }} / {{ $exec->testCase?->module?->name ?? '-' }}</td>
+                <td>{{ $exec->testCase?->application?->name }}</td>
+                <td>{{ $exec->testCase?->module?->name ?? '-' }}</td>
+                <td>{{ $exec->testCase?->menu?->name ?? '-' }}</td>
                 <td>{{ $exec->testCase?->title }}</td>
+                <td>{{ $exec->feature_description ?: '-' }}</td>
                 <td>
                     <span class="badge {{ $exec->status === 'PASS' ? 'badge-pass' : ($exec->status === 'FAILED' ? 'badge-fail' : 'badge-pending') }}">
                         {{ $exec->status }}
@@ -254,10 +267,11 @@
                 </td>
                 <td>{{ $exec->tester?->name }}</td>
                 <td>{{ $exec->executed_at?->format('d/m/Y H:i') }}</td>
+                <td>{{ $exec->actual_result ?: '-' }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="7" style="text-align: center; color: #94A3B8;">Tidak ada data eksekusi dalam rentang filter ini.</td>
+                <td colspan="11" style="text-align: center; color: #94A3B8;">Tidak ada data eksekusi dalam rentang filter ini.</td>
             </tr>
             @endforelse
         </tbody>
@@ -270,12 +284,15 @@
             <tr>
                 <th style="width: 4%;">No</th>
                 <th style="width: 12%;">Kode Bug</th>
-                <th style="width: 15%;">Aplikasi</th>
+                <th style="width: 12%;">Aplikasi</th>
+                <th style="width: 12%;">Modul</th>
+                <th style="width: 12%;">Menu</th>
                 <th>Judul Bug</th>
+                <th style="width: 18%;">Keterangan</th>
                 <th style="width: 10%;">Severity</th>
                 <th style="width: 10%;">Priority</th>
-                <th style="width: 12%;">Status</th>
-                <th style="width: 13%;">Pelapor</th>
+                <th style="width: 10%;">Status QA</th>
+                <th style="width: 12%;">Pelapor</th>
             </tr>
         </thead>
         <tbody>
@@ -284,7 +301,10 @@
                 <td style="text-align: center;">{{ $idx + 1 }}</td>
                 <td style="font-weight: bold; color: #DC2626;">{{ $bug->bug_code }}</td>
                 <td>{{ $bug->application?->name }}</td>
+                <td>{{ $bug->module?->name ?? '-' }}</td>
+                <td>{{ $bug->menu?->name ?? '-' }}</td>
                 <td>{{ $bug->title }}</td>
+                <td>{{ $bug->description }}</td>
                 <td style="font-weight: bold;">{{ $bug->severity }}</td>
                 <td>{{ $bug->priority }}</td>
                 <td>{{ $bug->status }}</td>
@@ -292,7 +312,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="8" style="text-align: center; color: #94A3B8;">Tidak ada tiket bug yang ditemukan.</td>
+                <td colspan="11" style="text-align: center; color: #94A3B8;">Tidak ada tiket bug yang ditemukan.</td>
             </tr>
             @endforelse
         </tbody>

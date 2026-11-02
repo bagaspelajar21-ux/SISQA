@@ -9,7 +9,7 @@
         </div>
         <h2 class="text-xl font-black tracking-tight text-white">Manajemen Pengguna &amp; Ceklist Hak Akses Role User</h2>
         <p class="text-xs text-slate-300 mt-0.5 max-w-2xl">
-          Kelola akun pengguna serta atur ceklist menu dan fitur apa saja yang ditampilkan pada tampilan pengguna ber-role <strong>User / QA Tester</strong>.
+          Kelola akun pengguna serta atur ceklist menu dan izin tombol Tambah, Edit, Hapus, dan aksi lain untuk role <strong>User / QA Tester</strong>. Admin tetap memiliki akses penuh.
         </p>
       </div>
 
@@ -19,7 +19,7 @@
           @click="openRoleChecklistModal"
           class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-xs font-extrabold text-white shadow-lg shadow-purple-600/30 transition-all cursor-pointer flex items-center gap-1.5"
         >
-          <span>☑️ Atur Ceklist Menu &amp; Fitur Role User</span>
+          <span>☑️ Atur Ceklist Menu &amp; Aksi Role User</span>
         </button>
 
         <button
@@ -195,7 +195,13 @@
           </div>
           <div class="md:col-span-2">
             <label class="block font-bold text-slate-700 mb-1">Password {{ isEdit ? '(Kosongkan jika tidak diubah)' : '*' }}</label>
-            <input v-model="form.password" :required="!isEdit" type="password" minlength="8" placeholder="••••••••" class="w-full py-2 px-3 border border-slate-300 rounded-xl" />
+            <div class="relative">
+              <input v-model="form.password" :required="!isEdit" :type="showPassword ? 'text' : 'password'" minlength="8" placeholder="••••••••" class="w-full py-2 px-3 pr-11 border border-slate-300 rounded-xl" />
+              <button type="button" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Sembunyikan password' : 'Lihat password'" class="absolute inset-y-0 right-0 px-3 text-slate-500 hover:text-blue-700">
+                <svg v-if="showPassword" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.2A10.9 10.9 0 0112 5c5 0 9 4.5 10 7a11.8 11.8 0 01-3.1 4.3M6.2 6.2A11.8 11.8 0 002 12c1 2.5 5 7 10 7 1.2 0 2.3-.2 3.3-.6" /></svg>
+                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10-3a3 3 0 100 6 3 3 0 000-6z" /></svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -302,7 +308,7 @@
             <div class="flex items-center justify-between pb-2 border-b border-slate-200">
               <div>
                 <div class="font-extrabold text-slate-900">📌 Menu Sidebar yang Ditampilkan</div>
-                <div class="text-[10px] text-slate-500">Menu yang tidak dicentang akan disembunyikan dari sidebar Role User</div>
+                <div class="text-[10px] text-slate-500">Menu baru dari Master Data muncul otomatis dan belum dicentang sampai Admin mengaktifkannya.</div>
               </div>
               <button
                 type="button"
@@ -338,7 +344,7 @@
             <div class="flex items-center justify-between pb-2 border-b border-slate-200">
               <div>
                 <div class="font-extrabold text-slate-900">⚡ Fitur &amp; Tombol Aksi yang Diizinkan</div>
-                <div class="text-[10px] text-slate-500">Mengatur tombol tambah, eksekusi, upload Excel, dan ekspor laporan</div>
+                <div class="text-[10px] text-slate-500">                Atur tombol Tambah, Edit, Hapus, Eksekusi, impor, serta ekspor secara terpisah</div>
               </div>
               <button
                 type="button"
@@ -411,6 +417,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import api from '../api';
+import { showAlert } from '../dialog';
 import Modal from '../components/Modal.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
@@ -421,6 +428,7 @@ const savingRole = ref(false);
 const users = ref([]);
 const showModal = ref(false);
 const showRoleModal = ref(false);
+const showPassword = ref(false);
 const isEdit = ref(false);
 const currentId = ref(null);
 
@@ -434,7 +442,7 @@ const definitions = reactive({
 
 const roleUserConfig = reactive({
   menus: ['/', '/schedules', '/test-cases', '/bugs', '/retests', '/flows', '/guides', '/reports', '/reports/wa', '/activity-logs'],
-  features: ['create_schedule', 'execute_test', 'create_test', 'import_test_excel', 'create_bug', 'edit_bug', 'import_bug_excel', 'create_retest', 'manage_flow', 'export_report'],
+  features: ['add_schedule', 'update_schedule', 'delete_schedule', 'execute_test', 'add_test', 'update_test', 'delete_test', 'import_test_excel', 'create_bug', 'update_bug', 'delete_bug', 'import_bug_excel', 'create_retest', 'add_flow', 'update_flow', 'delete_flow', 'export_report'],
 });
 
 const form = reactive({
@@ -507,7 +515,7 @@ const saveRoleChecklist = async () => {
     showRoleModal.value = false;
     await fetchUsersAndPermissions();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan ceklist Role User.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan ceklist Role User.', { title: 'Hak Akses Gagal Disimpan' });
   } finally {
     savingRole.value = false;
   }
@@ -536,6 +544,7 @@ const toggleAllUserFormFeatures = () => {
 
 const openCreateModal = () => {
   isEdit.value = false;
+  showPassword.value = false;
   form.name = '';
   form.username = '';
   form.email = '';
@@ -549,6 +558,7 @@ const openCreateModal = () => {
 
 const openEditModal = (u) => {
   isEdit.value = true;
+  showPassword.value = false;
   currentId.value = u.id;
   form.name = u.name;
   form.username = u.username || '';
@@ -571,7 +581,7 @@ const saveUser = async () => {
     showModal.value = false;
     fetchUsersAndPermissions();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menyimpan data pengguna.');
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan data pengguna.', { title: 'Pengguna Gagal Disimpan' });
   }
 };
 
@@ -580,7 +590,7 @@ const toggleActive = async (u) => {
     await api.patch(`/users/${u.id}/toggle-active`);
     fetchUsersAndPermissions();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal mengubah status.');
+    void showAlert(e.response?.data?.message || 'Gagal mengubah status.', { title: 'Status Gagal Diperbarui' });
   }
 };
 
@@ -596,7 +606,7 @@ const executeDelete = async () => {
     showDeleteConfirm.value = false;
     fetchUsersAndPermissions();
   } catch (e) {
-    alert(e.response?.data?.message || 'Gagal menghapus pengguna.');
+    void showAlert(e.response?.data?.message || 'Gagal menghapus pengguna.', { title: 'Pengguna Gagal Dihapus' });
   }
 };
 

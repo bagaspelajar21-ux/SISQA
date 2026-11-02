@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Models\AdminReminder;
+use App\Models\AutomatedReminderSetting;
 use App\Models\QaSchedule;
 use App\Models\User;
 use App\Notifications\QaReminderNotification;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 class ReminderDeliveryService
@@ -27,8 +29,109 @@ class ReminderDeliveryService
             });
 
         $this->dispatchDueScheduleNotifications();
+        $this->dispatchDueAutomatedReminders();
 
         return $deliveredCount;
+    }
+
+    public function dispatchDueAutomatedReminders(): int
+    {
+        $localNow = now('Asia/Jakarta');
+        $settings = AutomatedReminderSetting::current();
+        $dispatchedCount = 0;
+        $today = $localNow->toDateString();
+        $firstSaturday = $localNow->isSaturday() && $localNow->day <= 7;
+
+        $reminders = [
+            [
+                'enabled' => $settings->qa_enabled,
+                'time' => $settings->qa_time,
+                'event_key' => "qa:{$today}",
+                'title' => 'Waktunya QA harian',
+                'message' => 'Semangat! Saatnya memulai QA sesuai jadwal, menguji dengan teliti, dan mencatat hasilnya.',
+                'url' => '/schedules',
+            ],
+            [
+                'enabled' => $settings->daily_report_enabled,
+                'time' => $settings->daily_report_time,
+                'event_key' => "daily-report:{$today}",
+                'title' => 'Waktunya membuat report QA',
+                'message' => 'Jangan lupa merangkum hasil QA hari ini dan mengirim report harian.',
+                'url' => '/reports/wa',
+            ],
+            [
+                'enabled' => $settings->weekly_report_enabled && $localNow->isSaturday(),
+                'time' => $settings->weekly_report_time,
+                'event_key' => "weekly-report:{$today}",
+                'title' => 'Waktunya report mingguan',
+                'message' => 'Saatnya menyusun report pekerjaan QA mingguan. Terima kasih atas kerja keras minggu ini!',
+                'url' => '/reports/weekly',
+            ],
+            [
+                'enabled' => $settings->monthly_report_enabled && $firstSaturday,
+                'time' => $settings->monthly_report_time,
+                'event_key' => 'monthly-report:'.$localNow->format('Y-m'),
+                'title' => 'Waktunya report bulanan',
+                'message' => 'Sabtu pertama bulan ini adalah waktu yang tepat untuk menyusun report pekerjaan QA bulanan.',
+                'url' => '/reports/weekly',
+            ],
+        ];
+
+        foreach ($reminders as $reminder) {
+            if (! $reminder['enabled'] || ! $this->isReminderDue($localNow, $reminder['time'])) {
+                continue;
+            }
+
+            if ($this->dispatchAutomatedReminder($reminder, $settings->motivation_enabled, $settings->motivation_message)) {
+                $dispatchedCount++;
+            }
+        }
+
+        return $dispatchedCount;
+    }
+
+    /**
+     * @param  array{enabled: bool, time: string, event_key: string, title: string, message: string, url: string}  $reminder
+     */
+    private function dispatchAutomatedReminder(array $reminder, bool $motivationEnabled, string $motivationMessage): bool
+    {
+        return DB::transaction(function () use ($reminder, $motivationEnabled, $motivationMessage): bool {
+            $inserted = DB::table('automated_reminder_dispatches')->insertOrIgnore([
+                'event_key' => $reminder['event_key'],
+                'dispatched_at' => now(),
+            ]);
+
+            if ($inserted === 0) {
+                return false;
+            }
+
+            $message = $reminder['message'];
+            if ($motivationEnabled) {
+                $message .= "\n\n".$motivationMessage;
+            }
+
+            User::query()
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->chunkById(100, function ($users) use ($reminder, $message): void {
+                    $users->each(fn (User $user) => $user->notify(new QaReminderNotification(
+                        $reminder['title'],
+                        $message,
+                        $reminder['url'],
+                    )));
+                });
+
+            return true;
+        });
+    }
+
+    private function isReminderDue(CarbonInterface $localNow, string $time): bool
+    {
+        [$hour, $minute] = array_map('intval', explode(':', $time));
+        $scheduledMinutes = ($hour * 60) + $minute;
+        $currentMinutes = ((int) $localNow->format('G') * 60) + (int) $localNow->format('i');
+
+        return $currentMinutes >= $scheduledMinutes && $currentMinutes - $scheduledMinutes <= 5;
     }
 
     public function dispatchAdminReminder(int $reminderId): bool

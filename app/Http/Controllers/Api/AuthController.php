@@ -8,9 +8,10 @@ use App\Models\User;
 use App\Services\RolePermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class AuthController extends Controller
 {
@@ -26,7 +27,7 @@ class AuthController extends Controller
             ->orWhere('username', $loginInput)
             ->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             ActivityLog::record(
                 'login_failed',
                 'Auth',
@@ -44,7 +45,7 @@ class AuthController extends Controller
             ]);
         }
 
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             ActivityLog::record(
                 'login_blocked',
                 'Auth',
@@ -85,6 +86,7 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'username' => $user->username,
                 'email' => $user->email,
+                'profile_photo_url' => $user->profile_photo_url,
                 'role' => $user->role,
                 'is_active' => $user->is_active,
                 'permissions' => RolePermissionService::getPermissionsForUser($user),
@@ -128,6 +130,7 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'username' => $user->username,
                 'email' => $user->email,
+                'profile_photo_url' => $user->profile_photo_url,
                 'role' => $user->role,
                 'is_active' => $user->is_active,
                 'permissions' => RolePermissionService::getPermissionsForUser($user),
@@ -142,9 +145,12 @@ class AuthController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'username' => 'nullable|string|max:100|unique:users,username,' . $user->id,
-            'email' => 'required|email|max:255|unique:users,email,' . $user->id,
+            'username' => 'nullable|string|max:100|unique:users,username,'.$user->id,
+            'email' => 'required|email|max:255|unique:users,email,'.$user->id,
+            'profile_photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
         ]);
+        $profilePhoto = $validated['profile_photo'] ?? null;
+        unset($validated['profile_photo']);
 
         $old = [
             'name' => $user->name,
@@ -152,7 +158,23 @@ class AuthController extends Controller
             'email' => $user->email,
         ];
 
-        $user->update($validated);
+        $oldPhotoPath = $user->profile_photo_path;
+        $newPhotoPath = null;
+        if ($profilePhoto !== null) {
+            $newPhotoPath = $profilePhoto->storePublicly('profile-photos', 'public');
+            if ($newPhotoPath === false) {
+                throw new RuntimeException('Foto profil gagal disimpan.');
+            }
+        }
+
+        $user->fill($validated);
+        if ($newPhotoPath !== null) {
+            $user->profile_photo_path = $newPhotoPath;
+        }
+        $user->save();
+        if ($profilePhoto !== null && $oldPhotoPath !== null) {
+            Storage::disk('public')->delete($oldPhotoPath);
+        }
 
         ActivityLog::record(
             'profile_updated',
@@ -184,7 +206,7 @@ class AuthController extends Controller
             'password' => 'required|string|min:8|confirmed',
         ]);
 
-        if (!Hash::check($request->current_password, $user->password)) {
+        if (! Hash::check($request->current_password, $user->password)) {
             throw ValidationException::withMessages([
                 'current_password' => ['Password saat ini tidak sesuai.'],
             ]);

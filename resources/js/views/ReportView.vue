@@ -216,9 +216,11 @@
             <thead>
               <tr class="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase border-b border-slate-200">
                 <th class="py-2.5 px-3">Kode TC</th>
-                <th class="py-2.5 px-3">Aplikasi / Modul</th>
+                <th class="py-2.5 px-3">Aplikasi</th>
+                <th class="py-2.5 px-3">Menu</th>
                 <th class="py-2.5 px-3">Skenario</th>
-                <th class="py-2.5 px-3">Status</th>
+                <th class="py-2.5 px-3">Fitur / Keterangan</th>
+                <th class="py-2.5 px-3">Status QA</th>
                 <th class="py-2.5 px-3">Tester</th>
                 <th class="py-2.5 px-3">Hasil Aktual</th>
               </tr>
@@ -228,9 +230,10 @@
                 <td class="py-2.5 px-3 font-mono font-bold text-blue-600">{{ ex.test_case?.test_case_code }}</td>
                 <td class="py-2.5 px-3 text-slate-700">
                   <div class="font-medium">{{ ex.test_case?.application?.name }}</div>
-                  <div class="text-[10px] text-slate-400">{{ ex.test_case?.module?.name || '-' }}</div>
                 </td>
+                <td class="py-2.5 px-3 text-slate-600">{{ ex.test_case?.menu?.name || ex.test_case?.module?.name || '-' }}</td>
                 <td class="py-2.5 px-3 font-medium text-slate-800">{{ ex.test_case?.title }}</td>
+                <td class="py-2.5 px-3 text-slate-600 whitespace-pre-line">{{ ex.feature_description || '-' }}</td>
                 <td class="py-2.5 px-3">
                   <Badge :value="ex.status" />
                 </td>
@@ -253,7 +256,9 @@
               <tr class="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase border-b border-slate-200">
                 <th class="py-2.5 px-3">Kode Bug</th>
                 <th class="py-2.5 px-3">Aplikasi</th>
+                <th class="py-2.5 px-3">Menu</th>
                 <th class="py-2.5 px-3">Judul Bug</th>
+                <th class="py-2.5 px-3">Keterangan</th>
                 <th class="py-2.5 px-3">Severity</th>
                 <th class="py-2.5 px-3">Status</th>
                 <th class="py-2.5 px-3">Pelapor</th>
@@ -263,7 +268,9 @@
               <tr v-for="b in reportData.bugs" :key="b.id" class="hover:bg-slate-50">
                 <td class="py-2.5 px-3 font-mono font-bold text-red-600">{{ b.bug_code }}</td>
                 <td class="py-2.5 px-3 text-slate-700">{{ b.application?.name }}</td>
+                <td class="py-2.5 px-3 text-slate-600">{{ b.menu?.name || b.module?.name || '-' }}</td>
                 <td class="py-2.5 px-3 font-medium text-slate-800">{{ b.title }}</td>
+                <td class="py-2.5 px-3 text-slate-600 whitespace-pre-line">{{ b.description }}</td>
                 <td class="py-2.5 px-3"><Badge :value="b.severity" type="severity" /></td>
                 <td class="py-2.5 px-3"><Badge :value="b.status" /></td>
                 <td class="py-2.5 px-3 text-slate-600">{{ b.reporter?.name }}</td>
@@ -354,6 +361,7 @@ import { ref, reactive, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api';
 import { useAuth } from '../auth';
+import { showAlert } from '../dialog';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
@@ -564,7 +572,7 @@ const copyWaText = async () => {
     }, 2500);
   } catch (error) {
     console.error('Copy WA report error:', error);
-    window.alert('Laporan gagal disalin. Silakan coba kembali.');
+    void showAlert('Laporan gagal disalin. Silakan coba kembali.', { title: 'Gagal Menyalin Laporan' });
   }
 };
 
@@ -588,7 +596,7 @@ const exportExcel = async () => {
     link.click();
     link.remove();
   } catch (e) {
-    alert('Gagal mengekspor data Excel.');
+    void showAlert('Gagal mengekspor data Excel.', { title: 'Ekspor Excel Gagal' });
   } finally {
     exporting.value = false;
   }
@@ -610,7 +618,7 @@ const exportPdf = async () => {
     link.click();
     link.remove();
   } catch (e) {
-    alert('Gagal mengunduh dokumen PDF.');
+    void showAlert('Gagal mengunduh dokumen PDF.', { title: 'Unduhan PDF Gagal' });
   } finally {
     exporting.value = false;
   }

@@ -16,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -63,7 +64,7 @@ class QaReportController extends Controller
         $tcIds = $testCases->pluck('id');
 
         // Executions
-        $execQuery = TestExecution::with(['testCase.application', 'testCase.module', 'tester', 'schedule'])
+        $execQuery = TestExecution::with(['testCase.application', 'testCase.module', 'testCase.menu', 'tester', 'schedule'])
             ->whereIn('test_case_id', $tcIds);
         if ($startDate || $endDate) {
             $execQuery->inQaDateRange($startDate, $endDate);
@@ -148,7 +149,12 @@ class QaReportController extends Controller
         // Per-module progress calculation
         $latestStatusByTc = $latestExecutions->pluck('status', 'test_case_id');
         $moduleProgress = [];
-        $groupedByModule = $testCases->groupBy(fn ($tc) => $tc->module_id ?: 'general');
+        $groupedByModule = $testCases->groupBy(fn ($tc) => implode(':', [
+            $tc->application_id ?: 'general',
+            $tc->module_id ?: 'general',
+            $tc->menu_id ?: 'general',
+        ]));
+        $executionsByTestCase = $executions->groupBy('test_case_id');
         foreach ($groupedByModule as $modTcs) {
             $modName = $modTcs->first()->module?->name ?: 'Umum';
             $totalModTc = $modTcs->count();
@@ -157,9 +163,17 @@ class QaReportController extends Controller
             $notTestedModTc = $totalModTc - $passedModTc - $failedModTc;
             $executedModTc = $modTcs->filter(fn ($tc) => isset($latestStatusByTc[$tc->id]))->count();
             $progressPct = $totalModTc > 0 ? round(($passedModTc / $totalModTc) * 100) : 0;
+            $featureDescription = $modTcs
+                ->flatMap(fn ($tc) => $executionsByTestCase->get($tc->id, collect())->pluck('feature_description'))
+                ->filter(fn (?string $description): bool => is_string($description) && trim($description) !== '')
+                ->unique()
+                ->implode(' | ');
             $moduleProgress[] = [
                 'module_id' => $modTcs->first()->module_id,
                 'module_name' => $modName,
+                'application_name' => $modTcs->first()->application?->name ?? 'Aplikasi',
+                'menu_name' => $modTcs->first()->menu?->name ?? '-',
+                'feature_description' => $featureDescription,
                 'total_tc' => $totalModTc,
                 'passed_tc' => $passedModTc,
                 'failed_tc' => $failedModTc,
@@ -250,17 +264,17 @@ class QaReportController extends Controller
 
         // Brand Title
         $sheet->setCellValue('A1', 'SISQA - SOFTWARE QUALITY ASSURANCE SYSTEM');
-        $sheet->mergeCells('A1:J1');
+        $sheet->mergeCells('A1:M1');
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16)->getColor()->setRGB('2563EB');
 
         $sheet->setCellValue('A2', 'LAPORAN HASIL QUALITY ASSURANCE & DEFECT TRACKING');
-        $sheet->mergeCells('A2:J2');
+        $sheet->mergeCells('A2:M2');
         $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(12);
 
         $sheet->setCellValue('A3', "Aplikasi: {$data['filters']['application']} | Modul: {$data['filters']['module']} | Periode: {$data['filters']['start_date']} s/d {$data['filters']['end_date']}");
-        $sheet->mergeCells('A3:J3');
+        $sheet->mergeCells('A3:M3');
         $sheet->setCellValue('A4', "Dicetak pada: {$data['generated_at']} oleh {$user->name} ({$user->role})");
-        $sheet->mergeCells('A4:J4');
+        $sheet->mergeCells('A4:M4');
 
         // KPI Summary Box
         $sheet->setCellValue('A6', 'RINGKASAN METRIK QA (KONDISI SAAT INI)');
@@ -290,12 +304,24 @@ class QaReportController extends Controller
         // Section: Eksekusi Test Case
         $row = 10;
         $sheet->setCellValue('A'.$row, 'RINCIAN HASIL EKSEKUSI PENGUJIAN');
-        $sheet->mergeCells('A'.$row.':I'.$row);
+        $sheet->mergeCells('A'.$row.':K'.$row);
         $sheet->getStyle('A'.$row)->getFont()->setBold(true)->setSize(11);
         $row++;
 
         $executionHeaderRow = $row;
-        $tcHeaders = ['No', 'Kode TC', 'Aplikasi', 'Modul', 'Judul Skenario', 'Status', 'Tester', 'Waktu Eksekusi', 'Hasil Aktual'];
+        $tcHeaders = [
+            'No',
+            'Kode TC',
+            'Aplikasi',
+            'Modul',
+            'Judul Skenario',
+            'Status QA',
+            'Tester',
+            'Waktu Eksekusi',
+            'Hasil Aktual',
+            'Menu',
+            'Fitur yang Diuji / Keterangan',
+        ];
         foreach ($tcHeaders as $idx => $th) {
             $colLetter = chr(65 + $idx);
             $sheet->setCellValue($colLetter.$row, $th);
@@ -316,6 +342,8 @@ class QaReportController extends Controller
             $sheet->setCellValue('G'.$row, $exec->tester?->name);
             $sheet->setCellValue('H'.$row, $exec->executed_at?->format('d/m/Y H:i'));
             $sheet->setCellValue('I'.$row, $exec->actual_result);
+            $sheet->setCellValueExplicit('J'.$row, (string) ($exec->testCase?->menu?->name ?? ''), DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit('K'.$row, (string) ($exec->feature_description ?? ''), DataType::TYPE_STRING);
 
             // Status color highlight
             $statusCell = 'F'.$row;
@@ -330,12 +358,26 @@ class QaReportController extends Controller
         // Section: Daftar Bug
         $row += 2;
         $sheet->setCellValue('A'.$row, 'RINCIAN LAPORAN BUG / DEFECT');
-        $sheet->mergeCells('A'.$row.':J'.$row);
+        $sheet->mergeCells('A'.$row.':M'.$row);
         $sheet->getStyle('A'.$row)->getFont()->setBold(true)->setSize(11);
         $row++;
 
         $bugHeaderRow = $row;
-        $bugHeaders = ['No', 'Kode Bug', 'Aplikasi', 'Judul Bug', 'Severity', 'Priority', 'Status', 'Pelapor', 'Penanggung Jawab', 'Tanggal'];
+        $bugHeaders = [
+            'No',
+            'Kode Bug',
+            'Aplikasi',
+            'Judul Bug',
+            'Severity',
+            'Priority',
+            'Status QA',
+            'Pelapor',
+            'Penanggung Jawab',
+            'Tanggal',
+            'Modul',
+            'Menu',
+            'Keterangan',
+        ];
         foreach ($bugHeaders as $idx => $bh) {
             $colLetter = chr(65 + $idx);
             $sheet->setCellValue($colLetter.$row, $bh);
@@ -357,6 +399,9 @@ class QaReportController extends Controller
             $sheet->setCellValue('H'.$row, $b->reporter?->name);
             $sheet->setCellValue('I'.$row, $b->assignee?->name ?? 'Belum Ditugaskan');
             $sheet->setCellValue('J'.$row, $b->report_date?->format('d/m/Y'));
+            $sheet->setCellValue('K'.$row, $b->module?->name);
+            $sheet->setCellValueExplicit('L'.$row, (string) ($b->menu?->name ?? ''), DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit('M'.$row, (string) $b->description, DataType::TYPE_STRING);
             $row++;
         }
 
@@ -371,18 +416,21 @@ class QaReportController extends Controller
             'H' => 21,
             'I' => 38,
             'J' => 20,
+            'K' => 22,
+            'L' => 24,
+            'M' => 42,
         ];
         foreach ($mainColumnWidths as $column => $width) {
             $sheet->getColumnDimension($column)->setWidth($width);
         }
-        $sheet->getStyle("A{$executionHeaderRow}:I".($executionHeaderRow + count($data['executions'])))->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
-        $sheet->getStyle("A{$bugHeaderRow}:J".($bugHeaderRow + count($data['bugs'])))->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
-        $sheet->getStyle("A{$executionHeaderRow}:I{$executionHeaderRow}")->getAlignment()->setWrapText(true);
-        $sheet->getStyle("A{$bugHeaderRow}:J{$bugHeaderRow}")->getAlignment()->setWrapText(true);
-        $sheet->getStyle("A{$executionHeaderRow}:I".($executionHeaderRow + count($data['executions'])))
+        $sheet->getStyle("A{$executionHeaderRow}:K".($executionHeaderRow + count($data['executions'])))->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+        $sheet->getStyle("A{$bugHeaderRow}:M".($bugHeaderRow + count($data['bugs'])))->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+        $sheet->getStyle("A{$executionHeaderRow}:K{$executionHeaderRow}")->getAlignment()->setWrapText(true);
+        $sheet->getStyle("A{$bugHeaderRow}:M{$bugHeaderRow}")->getAlignment()->setWrapText(true);
+        $sheet->getStyle("A{$executionHeaderRow}:K".($executionHeaderRow + count($data['executions'])))
             ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)
             ->getColor()->setRGB('CBD5E1');
-        $sheet->getStyle("A{$bugHeaderRow}:J".($bugHeaderRow + count($data['bugs'])))
+        $sheet->getStyle("A{$bugHeaderRow}:M".($bugHeaderRow + count($data['bugs'])))
             ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)
             ->getColor()->setRGB('CBD5E1');
         $sheet->freezePane('A10');
@@ -390,15 +438,25 @@ class QaReportController extends Controller
         $moduleSheet = $spreadsheet->createSheet();
         $moduleSheet->setTitle('Hasil QA Modul');
         $moduleSheet->setCellValue('A1', 'HASIL QA PER MODUL');
-        $moduleSheet->mergeCells('A1:F1');
+        $moduleSheet->mergeCells('A1:I1');
         $moduleSheet->getStyle('A1')->getFont()->setBold(true)->setSize(15)->getColor()->setRGB('1E3A8A');
         $moduleSheet->setCellValue('A2', "Periode: {$data['filters']['start_date']} s/d {$data['filters']['end_date']}");
-        $moduleSheet->mergeCells('A2:F2');
+        $moduleSheet->mergeCells('A2:I2');
         $moduleSheet->setCellValue('A3', "Aplikasi: {$data['filters']['application']} | Modul: {$data['filters']['module']}");
-        $moduleSheet->mergeCells('A3:F3');
+        $moduleSheet->mergeCells('A3:I3');
 
         $moduleHeaderRow = 5;
-        $moduleHeaders = ['No', 'Modul', 'Total Test', 'PASS', 'FAIL', 'NOT TEST'];
+        $moduleHeaders = [
+            'No',
+            'Modul',
+            'Total Test',
+            'PASS',
+            'FAIL',
+            'NOT TEST',
+            'Aplikasi',
+            'Menu',
+            'Fitur yang Diuji / Keterangan',
+        ];
         foreach ($moduleHeaders as $idx => $header) {
             $colLetter = chr(65 + $idx);
             $moduleSheet->setCellValue($colLetter.$moduleHeaderRow, $header);
@@ -418,9 +476,17 @@ class QaReportController extends Controller
                 $module['passed_tc'],
                 $module['failed_tc'],
                 $module['not_tested_tc'],
+                $module['application_name'],
+                $module['menu_name'],
+                $module['feature_description'],
             ];
             foreach ($values as $idx => $value) {
-                $moduleSheet->setCellValue(chr(65 + $idx).$moduleRow, $value);
+                $cell = chr(65 + $idx).$moduleRow;
+                if ($idx >= 6) {
+                    $moduleSheet->setCellValueExplicit($cell, (string) $value, DataType::TYPE_STRING);
+                } else {
+                    $moduleSheet->setCellValue($cell, $value);
+                }
             }
             $moduleSheet->getStyle("A{$moduleRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $moduleSheet->getStyle("C{$moduleRow}:F{$moduleRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
@@ -433,20 +499,20 @@ class QaReportController extends Controller
         $moduleSheet->setCellValue('D'.$moduleRow, $moduleTotals['passed_tc']);
         $moduleSheet->setCellValue('E'.$moduleRow, $moduleTotals['failed_tc']);
         $moduleSheet->setCellValue('F'.$moduleRow, $moduleTotals['not_tested_tc']);
-        $moduleSheet->getStyle("A{$moduleRow}:F{$moduleRow}")->getFont()->setBold(true);
-        $moduleSheet->getStyle("A{$moduleRow}:F{$moduleRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDE68A');
+        $moduleSheet->getStyle("A{$moduleRow}:I{$moduleRow}")->getFont()->setBold(true);
+        $moduleSheet->getStyle("A{$moduleRow}:I{$moduleRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FDE68A');
         $moduleSheet->getStyle("B{$moduleRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $moduleSheet->getStyle("C{$moduleRow}:F{$moduleRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        foreach (['A' => 8, 'B' => 38, 'C' => 16, 'D' => 14, 'E' => 14, 'F' => 16] as $column => $width) {
+        foreach (['A' => 8, 'B' => 30, 'C' => 14, 'D' => 12, 'E' => 12, 'F' => 14, 'G' => 24, 'H' => 24, 'I' => 48] as $column => $width) {
             $moduleSheet->getColumnDimension($column)->setWidth($width);
         }
-        $moduleSheet->getStyle("A{$moduleHeaderRow}:F{$moduleRow}")
+        $moduleSheet->getStyle("A{$moduleHeaderRow}:I{$moduleRow}")
             ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)
             ->getColor()->setRGB('CBD5E1');
         $moduleSheet->getStyle("A{$moduleHeaderRow}:F{$moduleRow}")->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
         $moduleSheet->freezePane('A6');
-        $moduleSheet->setAutoFilter("A{$moduleHeaderRow}:F".($moduleRow - 1));
+        $moduleSheet->setAutoFilter("A{$moduleHeaderRow}:I".($moduleRow - 1));
         $spreadsheet->setActiveSheetIndex(0);
 
         ActivityLog::record(
