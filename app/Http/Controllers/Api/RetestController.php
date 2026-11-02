@@ -8,15 +8,38 @@ use App\Models\Bug;
 use App\Models\BugHistory;
 use App\Models\Retest;
 use App\Models\RetestEvidence;
+use App\Services\QaScheduleLockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class RetestController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
-        $query = Retest::with(['bug.application', 'testCase', 'tester', 'evidences']);
+        $dateRange = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $startDate = $dateRange['start_date'] ?? null;
+        $endDate = $dateRange['end_date'] ?? null;
+
+        $query = Retest::with([
+            'bug.application',
+            'bug.schedule',
+            'testCase.schedules' => fn ($scheduleQuery) => $scheduleQuery->orderByDesc('start_time'),
+            'tester',
+            'evidences',
+            'schedule',
+        ]);
+
+        if ($startDate || $endDate) {
+            $query->inQaDateRange($startDate, $endDate);
+        }
+
+        if (! $request->user()->isAdmin()) {
+            $scheduleLock->excludeLockedRetests($query);
+        }
 
         if ($bugId = $request->input('bug_id')) {
             $query->where('bug_id', $bugId);
@@ -39,7 +62,7 @@ class RetestController extends Controller
         return response()->json($retests);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $user = $request->user();
 
@@ -55,6 +78,12 @@ class RetestController extends Controller
         ]);
 
         $bug = Bug::findOrFail($validated['bug_id']);
+
+        if (! $user->isAdmin() && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
 
         $retest = Retest::create([
             'bug_id' => $bug->id,
@@ -128,8 +157,23 @@ class RetestController extends Controller
         ], 201);
     }
 
-    public function show(Retest $retest): JsonResponse
+    public function show(Request $request, Retest $retest, QaScheduleLockService $scheduleLock): JsonResponse
     {
+        $lockedSchedule = $request->user()->isAdmin()
+            ? null
+            : ($scheduleLock->expiredScheduleForContext(
+                $retest->qa_schedule_id,
+                $retest->test_case_id,
+                $retest->module_id,
+                $retest->menu_id,
+            ) ?? ($retest->bug ? $scheduleLock->expiredScheduleForBug($retest->bug) : null));
+
+        if ($lockedSchedule !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         return response()->json([
             'retest' => $retest->load(['bug.application', 'testCase', 'tester', 'evidences.uploader']),
         ]);

@@ -155,10 +155,7 @@
         <div>
           <label class="block font-bold text-slate-700 mb-1">Nama Modul (Menu Utama) *</label>
           <input v-model="form.name" required type="text" placeholder="Contoh: Master Data / Pembelian / Penjualan" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
-        </div>
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Kode Modul *</label>
-          <input v-model="form.code" required type="text" placeholder="Contoh: MD" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
+          <p class="mt-1 text-[11px] text-slate-500">Kode modul akan dibuat otomatis setelah data disimpan.</p>
         </div>
         <div class="flex justify-end space-x-2 pt-3 border-t">
           <button type="button" @click="showModal = false" class="px-3 py-1.5 border rounded-lg cursor-pointer">Batal</button>
@@ -178,10 +175,7 @@
         <div>
           <label class="block font-bold text-slate-700 mb-1">Nama Sub-Menu / Fitur *</label>
           <input v-model="subMenuForm.name" required type="text" placeholder="Contoh: Data Barang & Jasa / Master Gudang" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
-        </div>
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Kode Sub-Menu *</label>
-          <input v-model="subMenuForm.code" required type="text" placeholder="Contoh: MD-M5" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
+          <p class="mt-1 text-[11px] text-slate-500">Kode sub-menu akan dibuat otomatis setelah data disimpan.</p>
         </div>
         <div>
           <label class="block font-bold text-slate-700 mb-1">Route / Path URL (Opsional)</label>
@@ -222,14 +216,12 @@ const subMenuForm = reactive({
   application_id: '',
   module_id: '',
   name: '',
-  code: '',
   url_or_route: '',
 });
 
 const form = reactive({
   application_id: '',
   name: '',
-  code: '',
   order_index: 0,
 });
 
@@ -267,7 +259,6 @@ const openAddSubMenuModal = (m) => {
   subMenuForm.application_id = m.application_id;
   subMenuForm.module_id = m.id;
   subMenuForm.name = '';
-  subMenuForm.code = `${m.code}-M${(m.menus_count || 0) + 1}`;
   subMenuForm.url_or_route = '';
   showSubMenuModal.value = true;
 };
@@ -304,14 +295,15 @@ const openCreateModal = () => {
   isEdit.value = false;
   form.application_id = filterAppId.value || apps.value[0]?.id || '';
   form.name = '';
-  form.code = '';
   showModal.value = true;
 };
 
 const openEditModal = (m) => {
   isEdit.value = true;
   currentId.value = m.id;
-  Object.assign(form, m);
+  form.application_id = m.application_id;
+  form.name = m.name;
+  form.order_index = m.order_index;
   showModal.value = true;
 };
 

@@ -9,12 +9,15 @@ import FlowView from './views/FlowView.vue';
 import GuideView from './views/GuideView.vue';
 import ReportView from './views/ReportView.vue';
 import WaReportView from './views/WaReportView.vue';
+import WeeklyWorkReportView from './views/WeeklyWorkReportView.vue';
 import ActivityLogView from './views/ActivityLogView.vue';
 import MasterAppView from './views/MasterAppView.vue';
 import MasterModuleView from './views/MasterModuleView.vue';
 import MasterMenuView from './views/MasterMenuView.vue';
 import UserManagementView from './views/UserManagementView.vue';
+import AdminReminderView from './views/AdminReminderView.vue';
 import ProfileView from './views/ProfileView.vue';
+import { useAuth } from './auth';
 
 const routes = [
   {
@@ -27,85 +30,97 @@ const routes = [
     path: '/',
     name: 'dashboard',
     component: DashboardView,
-    meta: { title: 'Dashboard Ringkasan QA' },
+    meta: { menu: '/', title: 'Dashboard Ringkasan QA' },
   },
   {
     path: '/schedules',
     name: 'schedules',
     component: ScheduleView,
-    meta: { title: 'Jadwal QA & Alokasi Pengujian' },
+    meta: { menu: '/schedules', title: 'Jadwal QA & Alokasi Pengujian' },
   },
   {
     path: '/test-cases',
     name: 'test-cases',
     component: TestCaseView,
-    meta: { title: 'Test Management & Eksekusi' },
+    meta: { menu: '/test-cases', title: 'Test Management & Eksekusi' },
   },
   {
     path: '/bugs',
     name: 'bugs',
     component: BugView,
-    meta: { title: 'Bug Tracking & Defect Management' },
+    meta: { menu: '/bugs', title: 'Bug Tracking & Defect Management' },
   },
   {
     path: '/retests',
     name: 'retests',
     component: RetestView,
-    meta: { title: 'Siklus Verifikasi Retesting' },
+    meta: { menu: '/retests', title: 'Siklus Verifikasi Retesting' },
   },
   {
     path: '/flows',
     name: 'flows',
     component: FlowView,
-    meta: { title: 'Flow & Alur Proses Bisnis' },
+    meta: { menu: '/flows', title: 'Flow & Alur Proses Bisnis' },
   },
   {
     path: '/guides',
     name: 'guides',
     component: GuideView,
-    meta: { title: 'Panduan Penggunaan SISQA' },
+    meta: { menu: '/guides', title: 'Panduan Penggunaan SISQA' },
   },
   {
     path: '/reports',
     name: 'reports',
     component: ReportView,
-    meta: { title: 'Pusat Laporan & Ekspor QA' },
+    meta: { menu: '/reports', title: 'Pusat Laporan & Ekspor QA' },
   },
   {
     path: '/reports/wa',
     name: 'wa-report',
     component: WaReportView,
-    meta: { title: 'Report WA — QA Daily Testing & Progress Report' },
+    meta: { menu: '/reports/wa', title: 'Report WA — QA Daily Testing & Progress Report' },
+  },
+  {
+    path: '/reports/weekly',
+    name: 'weekly-work-report',
+    component: WeeklyWorkReportView,
+    meta: { menu: '/reports/weekly', title: 'Catatan Pekerjaan Mingguan Pribadi' },
   },
   {
     path: '/activity-logs',
     name: 'activity-logs',
     component: ActivityLogView,
-    meta: { title: 'Activity Logs & Audit Trail' },
+    meta: { menu: '/activity-logs', title: 'Activity Logs & Audit Trail' },
   },
   {
     path: '/master/apps',
     name: 'master-apps',
     component: MasterAppView,
-    meta: { title: 'Master Data Aplikasi' },
+    meta: { menu: '/master/apps', adminOnly: true, title: 'Master Data Aplikasi' },
   },
   {
     path: '/master/modules',
     name: 'master-modules',
     component: MasterModuleView,
-    meta: { title: 'Master Data Modul' },
+    meta: { menu: '/master/modules', adminOnly: true, title: 'Master Data Modul' },
   },
   {
     path: '/master/menus',
     name: 'master-menus',
     component: MasterMenuView,
-    meta: { title: 'Master Data Menu' },
+    meta: { menu: '/master/menus', adminOnly: true, title: 'Master Data Menu' },
   },
   {
     path: '/users',
     name: 'users',
     component: UserManagementView,
     meta: { title: 'Manajemen Pengguna', adminOnly: true },
+  },
+  {
+    path: '/admin/reminders',
+    name: 'admin-reminders',
+    component: AdminReminderView,
+    meta: { title: 'Pengingat & Notifikasi', adminOnly: true },
   },
   {
     path: '/profile',
@@ -124,49 +139,33 @@ const router = createRouter({
   routes,
 });
 
-const getFirstAllowedForUser = (user) => {
-  if (!user) return '/login';
-  if (user.role === 'admin') return '/';
-  const menus = user.permissions?.menus;
-  if (Array.isArray(menus)) {
-    return menus.length > 0 ? menus[0] : '/profile';
-  }
-  return '/';
-};
-
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to) => {
   const token = localStorage.getItem('sisqa_token');
-  const userStr = localStorage.getItem('sisqa_user');
-  const user = userStr ? JSON.parse(userStr) : null;
 
   if (!to.meta.public && !token) {
-    return next({ name: 'login' });
+    return { name: 'login' };
   }
 
-  if (to.name === 'login' && token) {
-    return next(getFirstAllowedForUser(user));
+  const { checkAuth, currentUser, hasMenuAccess, getFirstAllowedPath } = useAuth();
+  const user = token ? await checkAuth() : currentUser.value;
+
+  if (!to.meta.public && !user) {
+    return { name: 'login' };
+  }
+
+  if (to.name === 'login' && user) {
+    return getFirstAllowedPath(user);
   }
 
   if (to.meta.adminOnly && user?.role !== 'admin') {
-    return next(getFirstAllowedForUser(user));
+    return getFirstAllowedPath(user);
   }
 
-  if (!to.meta.public && user && user.role !== 'admin' && to.path !== '/profile') {
-    const menus = user.permissions?.menus;
-    const isAllowed = Array.isArray(menus)
-      ? menus.includes(to.path)
-      : (!to.path.startsWith('/master') && to.path !== '/users');
-
-    if (!isAllowed) {
-      const fallback = getFirstAllowedForUser(user);
-      if (fallback !== to.path) {
-        return next(fallback);
-      }
-    }
+  if (to.meta.menu && !hasMenuAccess(to.meta.menu)) {
+    return getFirstAllowedPath(user);
   }
 
   document.title = `${to.meta.title || 'SISQA'} — Software Quality Assurance`;
-  next();
 });
 
 export default router;

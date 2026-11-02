@@ -74,10 +74,7 @@
         <div>
           <label class="block font-bold text-slate-700 mb-1">Nama Menu *</label>
           <input v-model="form.name" required type="text" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
-        </div>
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Kode Menu *</label>
-          <input v-model="form.code" required type="text" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
+          <p class="mt-1 text-[11px] text-slate-500">Kode menu akan dibuat otomatis setelah data disimpan.</p>
         </div>
         <div>
           <label class="block font-bold text-slate-700 mb-1">Route / Path URL</label>
@@ -111,7 +108,6 @@ const form = reactive({
   application_id: '',
   module_id: '',
   name: '',
-  code: '',
   url_or_route: '',
 });
 
@@ -143,7 +139,6 @@ const openCreateModal = () => {
   isEdit.value = false;
   form.application_id = apps.value[0]?.id || '';
   form.name = '';
-  form.code = '';
   form.url_or_route = '';
   handleAppChange();
   showModal.value = true;
@@ -156,7 +151,6 @@ const openEditModal = async (mn) => {
   await handleAppChange();
   form.module_id = mn.module_id;
   form.name = mn.name;
-  form.code = mn.code;
   form.url_or_route = mn.url_or_route || '';
   showModal.value = true;
 };

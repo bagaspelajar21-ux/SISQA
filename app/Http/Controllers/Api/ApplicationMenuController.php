@@ -8,7 +8,6 @@ use App\Models\ApplicationMenu;
 use App\Models\ApplicationModule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class ApplicationMenuController extends Controller
@@ -28,8 +27,8 @@ class ApplicationMenuController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhere('url_or_route', 'like', "%{$search}%");
+                    ->orWhere('code', 'like', "%{$search}%")
+                    ->orWhere('url_or_route', 'like', "%{$search}%");
             });
         }
 
@@ -46,12 +45,6 @@ class ApplicationMenuController extends Controller
             'application_id' => 'required|exists:applications,id',
             'module_id' => 'required|exists:application_modules,id',
             'name' => 'required|string|max:255',
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('application_menus')->where(fn($q) => $q->where('module_id', $request->module_id)),
-            ],
             'url_or_route' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'order_index' => 'integer',
@@ -63,12 +56,13 @@ class ApplicationMenuController extends Controller
             ->where('application_id', $validated['application_id'])
             ->first();
 
-        if (!$module) {
+        if (! $module) {
             throw ValidationException::withMessages([
                 'module_id' => ['Modul yang dipilih tidak terdaftar pada aplikasi ini.'],
             ]);
         }
 
+        $validated['code'] = $this->generateCode();
         $menu = ApplicationMenu::create($validated);
 
         ActivityLog::record(
@@ -100,14 +94,6 @@ class ApplicationMenuController extends Controller
             'application_id' => 'required|exists:applications,id',
             'module_id' => 'required|exists:application_modules,id',
             'name' => 'required|string|max:255',
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('application_menus')
-                    ->where(fn($q) => $q->where('module_id', $request->module_id))
-                    ->ignore($menu->id),
-            ],
             'url_or_route' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'order_index' => 'integer',
@@ -119,13 +105,13 @@ class ApplicationMenuController extends Controller
             ->where('application_id', $validated['application_id'])
             ->first();
 
-        if (!$module) {
+        if (! $module) {
             throw ValidationException::withMessages([
                 'module_id' => ['Modul yang dipilih tidak terdaftar pada aplikasi ini.'],
             ]);
         }
 
-        $old = $menu->only(['name', 'code', 'url_or_route', 'description', 'order_index', 'is_active', 'application_id', 'module_id']);
+        $old = $menu->only(['name', 'url_or_route', 'description', 'order_index', 'is_active', 'application_id', 'module_id']);
         $menu->update($validated);
 
         ActivityLog::record(
@@ -162,5 +148,17 @@ class ApplicationMenuController extends Controller
         return response()->json([
             'message' => 'Menu berhasil dihapus.',
         ]);
+    }
+
+    private function generateCode(): string
+    {
+        $nextId = (int) ApplicationMenu::withTrashed()->max('id') + 1;
+
+        do {
+            $code = sprintf('MENU-%04d', $nextId);
+            $nextId++;
+        } while (ApplicationMenu::withTrashed()->where('code', $code)->exists());
+
+        return $code;
     }
 }

@@ -289,7 +289,7 @@
       </div>
 
       <!-- Filter Controls -->
-      <div :class="['grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4', canUseQuickActions ? 'lg:grid-cols-5' : 'lg:grid-cols-3']">
+      <div :class="['grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4', canUseQuickActions ? 'lg:grid-cols-6' : 'lg:grid-cols-3']">
         <div>
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Aplikasi</label>
           <select
@@ -349,6 +349,17 @@
           <input
             type="date"
             v-model="filters.start_date"
+            :max="filters.end_date || undefined"
+            @change="fetchDashboardData"
+            class="w-full text-xs py-1.5 px-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          />
+        </div>
+        <div v-if="canUseQuickActions">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Selesai</label>
+          <input
+            type="date"
+            v-model="filters.end_date"
+            :min="filters.start_date || undefined"
             @change="fetchDashboardData"
             class="w-full text-xs py-1.5 px-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />

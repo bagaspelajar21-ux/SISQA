@@ -104,6 +104,7 @@
           <input
             type="date"
             v-model="filters.start_date"
+            :max="filters.end_date || undefined"
             @change="fetchReportData"
             class="w-full text-xs py-1.5 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
@@ -114,6 +115,7 @@
           <input
             type="date"
             v-model="filters.end_date"
+            :min="filters.start_date || undefined"
             @change="fetchReportData"
             class="w-full text-xs py-1.5 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
@@ -151,6 +153,55 @@
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
           <div class="text-[10px] font-bold text-slate-400 uppercase">Total Bug Aktif</div>
           <div class="text-xl font-black text-red-600 mt-1">{{ reportData.summary.active_bugs }}</div>
+        </div>
+      </div>
+
+      <!-- Preview Table: QA Results per Module -->
+      <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div class="p-4 border-b border-slate-100 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Hasil QA per Modul</h3>
+            <p class="text-[11px] text-slate-500">
+              Periode {{ reportData.filters.start_date }} s/d {{ reportData.filters.end_date }}
+            </p>
+          </div>
+          <span class="text-[11px] text-slate-500">Ringkasan status terbaru setiap test case</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[640px] text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-amber-400 text-[11px] font-bold text-slate-900 uppercase border-b border-amber-500">
+                <th class="py-2.5 px-3 text-center">No</th>
+                <th class="py-2.5 px-3">Modul</th>
+                <th class="py-2.5 px-3 text-center">Total Test</th>
+                <th class="py-2.5 px-3 text-center">PASS</th>
+                <th class="py-2.5 px-3 text-center">FAIL</th>
+                <th class="py-2.5 px-3 text-center">NOT TEST</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr v-for="(module, index) in reportData.module_progress" :key="module.module_id || 'general'" class="hover:bg-slate-50">
+                <td class="py-2 px-3 text-center text-slate-500">{{ index + 1 }}</td>
+                <td class="py-2 px-3 font-semibold text-slate-800">{{ module.module_name }}</td>
+                <td class="py-2 px-3 text-center font-bold text-slate-900">{{ module.total_tc }}</td>
+                <td class="py-2 px-3 text-center font-bold text-emerald-700">{{ module.passed_tc }}</td>
+                <td class="py-2 px-3 text-center font-bold text-red-700">{{ module.failed_tc }}</td>
+                <td class="py-2 px-3 text-center font-bold text-slate-600">{{ module.not_tested_tc }}</td>
+              </tr>
+              <tr v-if="reportData.module_progress.length === 0">
+                <td colspan="6" class="py-6 px-3 text-center text-slate-500">Tidak ada test case pada periode ini.</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="bg-amber-100 font-black text-slate-900 border-t-2 border-amber-400">
+                <td colspan="2" class="py-2.5 px-3 text-center">TOTAL</td>
+                <td class="py-2.5 px-3 text-center">{{ reportData.module_progress_totals.total_tc }}</td>
+                <td class="py-2.5 px-3 text-center text-emerald-700">{{ reportData.module_progress_totals.passed_tc }}</td>
+                <td class="py-2.5 px-3 text-center text-red-700">{{ reportData.module_progress_totals.failed_tc }}</td>
+                <td class="py-2.5 px-3 text-center">{{ reportData.module_progress_totals.not_tested_tc }}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       </div>
 
@@ -307,6 +358,7 @@ import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
+import { copyTextToClipboard, openWhatsAppMessage } from '../utils/whatsapp';
 
 const router = useRouter();
 const { currentUser, hasMenuAccess, hasFeatureAccess } = useAuth();
@@ -505,29 +557,19 @@ const openWaModal = () => {
 
 const copyWaText = async () => {
   try {
-    await navigator.clipboard.writeText(waReportText.value);
+    await copyTextToClipboard(waReportText.value);
     copied.value = true;
     setTimeout(() => {
       copied.value = false;
     }, 2500);
-  } catch (e) {
-    // Fallback copy for non-HTTPS local IPs (e.g. 192.168.x.x)
-    const ta = document.createElement('textarea');
-    ta.value = waReportText.value;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    copied.value = true;
-    setTimeout(() => {
-      copied.value = false;
-    }, 2500);
+  } catch (error) {
+    console.error('Copy WA report error:', error);
+    window.alert('Laporan gagal disalin. Silakan coba kembali.');
   }
 };
 
 const sendToWhatsApp = () => {
-  const encoded = encodeURIComponent(waReportText.value);
-  window.open(`https://wa.me/?text=${encoded}`, '_blank');
+  openWhatsAppMessage(waReportText.value);
 };
 
 const exportExcel = async () => {

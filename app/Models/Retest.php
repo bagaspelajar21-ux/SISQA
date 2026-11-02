@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -28,6 +30,32 @@ class Retest extends Model
     protected $casts = [
         'retest_date' => 'datetime',
     ];
+
+    #[Scope]
+    protected function inQaDateRange(Builder $query, ?string $startDate, ?string $endDate): void
+    {
+        $applyActivityDateRange = static function (Builder $query) use ($startDate, $endDate): void {
+            if ($startDate) {
+                $query->whereDate('retest_date', '>=', $startDate);
+            }
+
+            if ($endDate) {
+                $query->whereDate('retest_date', '<=', $endDate);
+            }
+        };
+
+        $query->where(function (Builder $query) use ($startDate, $endDate, $applyActivityDateRange): void {
+            $query->whereHas('schedule', fn (Builder $scheduleQuery) => $scheduleQuery->overlappingDateRange($startDate, $endDate))
+                ->orWhereHas('bug.schedule', fn (Builder $scheduleQuery) => $scheduleQuery->overlappingDateRange($startDate, $endDate))
+                ->orWhereHas('testCase.schedules', fn (Builder $scheduleQuery) => $scheduleQuery->overlappingDateRange($startDate, $endDate))
+                ->orWhere(function (Builder $unscheduledQuery) use ($applyActivityDateRange): void {
+                    $unscheduledQuery->whereNull('qa_schedule_id')
+                        ->whereDoesntHave('bug.schedule')
+                        ->whereDoesntHave('testCase.schedules');
+                    $applyActivityDateRange($unscheduledQuery);
+                });
+        });
+    }
 
     public function bug()
     {

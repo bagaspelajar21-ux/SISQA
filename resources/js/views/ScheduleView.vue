@@ -76,7 +76,7 @@
     <!-- Filter Bar -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs">
       <!-- Filters -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
         <div>
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Cari Jadwal</label>
           <input
@@ -124,6 +124,26 @@
             <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
           </select>
         </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Mulai</label>
+          <input
+            v-model="filters.start_date"
+            :max="filters.end_date || undefined"
+            type="date"
+            @change="fetchSchedules(1); fetchCalendar()"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Selesai</label>
+          <input
+            v-model="filters.end_date"
+            :min="filters.start_date || undefined"
+            type="date"
+            @change="fetchSchedules(1); fetchCalendar()"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
         <div class="flex items-end">
           <button
             @click="resetFilters"
@@ -145,7 +165,7 @@
           title="Tidak Ada Jadwal QA"
           description="Belum ada jadwal yang cocok dengan filter yang dipilih."
         >
-          <template #action v-if="isAdmin">
+          <template #action v-if="hasFeatureAccess('create_schedule')">
             <button
               @click="openCreateModal"
               class="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors cursor-pointer"
@@ -251,7 +271,7 @@
                     Detail
                   </button>
                   <button
-                    v-if="isAdmin"
+                    v-if="hasFeatureAccess('create_schedule')"
                     @click="openEditModal(sch)"
                     class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Edit Jadwal"
@@ -259,7 +279,7 @@
                     Edit
                   </button>
                   <button
-                    v-if="isAdmin"
+                    v-if="hasFeatureAccess('create_schedule')"
                     @click="confirmDelete(sch)"
                     class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Hapus Jadwal"
@@ -632,7 +652,7 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
 const router = useRouter();
-const { isAdmin, hasFeatureAccess } = useAuth();
+const { hasFeatureAccess } = useAuth();
 
 const isScheduleExpired = (sch) => {
   if (!sch) return false;
@@ -677,6 +697,8 @@ const filters = reactive({
   application_id: '',
   status: '',
   tester_id: '',
+  start_date: '',
+  end_date: '',
 });
 
 const showModal = ref(false);
@@ -716,6 +738,16 @@ const formatDateTime = (str) => {
   return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
+const toLocalDateTimeInput = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+
+const toUtcIsoString = (value) => {
+  return value ? new Date(value).toISOString() : '';
+};
+
 const fetchLookups = async () => {
   try {
     const [appRes, userRes] = await Promise.all([
@@ -746,7 +778,12 @@ const fetchSchedules = async (page = 1) => {
 
 const fetchCalendar = async () => {
   try {
-    const res = await api.get('/schedules/calendar');
+    const res = await api.get('/schedules/calendar', {
+      params: {
+        start_date: filters.start_date,
+        end_date: filters.end_date,
+      },
+    });
     calendarEvents.value = res.data;
   } catch (e) {}
 };
@@ -764,7 +801,10 @@ const resetFilters = () => {
   filters.application_id = '';
   filters.status = '';
   filters.tester_id = '';
+  filters.start_date = '';
+  filters.end_date = '';
   fetchSchedules(1);
+  fetchCalendar();
 };
 
 const changePage = (p) => {
@@ -801,8 +841,8 @@ const checkTesterConflict = async () => {
     const res = await api.get('/schedules/check-conflict', {
       params: {
         tester_id: form.tester_id,
-        start_time: form.start_time,
-        end_time: form.end_time,
+        start_time: toUtcIsoString(form.start_time),
+        end_time: toUtcIsoString(form.end_time),
         exclude_id: currentId.value,
       },
     });
@@ -846,8 +886,8 @@ const openEditModal = async (sch) => {
   form.priority = sch.priority;
   form.tester_id = sch.tester_id || '';
   form.status = sch.status;
-  form.start_time = sch.start_time?.slice(0, 16);
-  form.end_time = sch.end_time?.slice(0, 16);
+  form.start_time = toLocalDateTimeInput(sch.start_time);
+  form.end_time = toLocalDateTimeInput(sch.end_time);
   form.notes = sch.notes || '';
   showModal.value = true;
 };
@@ -859,10 +899,16 @@ const closeModal = () => {
 const saveSchedule = async () => {
   saving.value = true;
   try {
+    const scheduleData = {
+      ...form,
+      start_time: toUtcIsoString(form.start_time),
+      end_time: toUtcIsoString(form.end_time),
+    };
+
     if (isEdit.value) {
-      await api.put(`/schedules/${currentId.value}`, form);
+      await api.put(`/schedules/${currentId.value}`, scheduleData);
     } else {
-      await api.post('/schedules', form);
+      await api.post('/schedules', scheduleData);
     }
     showModal.value = false;
     fetchSchedules(pagination.current_page);

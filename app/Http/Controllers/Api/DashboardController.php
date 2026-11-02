@@ -19,12 +19,17 @@ class DashboardController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $dateRange = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+
         $user = $request->user();
         $perms = RolePermissionService::getPermissionsForUser($user);
         $allowedMenus = $perms['menus'] ?? [];
         $allowedFeatures = $perms['features'] ?? [];
 
-        if ($user && $user->role !== 'admin' && !in_array('/', $allowedMenus, true)) {
+        if ($user && $user->role !== 'admin' && ! in_array('/', $allowedMenus, true)) {
             return response()->json([
                 'message' => 'Akses ke menu Dashboard telah dinonaktifkan untuk akun Anda.',
             ], 403);
@@ -38,26 +43,35 @@ class DashboardController extends Controller
         $moduleId = $request->input('module_id');
         $menuId = $request->input('menu_id');
         $testerId = $canViewAllData ? $request->input('tester_id') : ($user?->id);
-        $startDate = $request->input('start_date');
-        $endDate = $request->input('end_date');
+        $startDate = $dateRange['start_date'] ?? null;
+        $endDate = $dateRange['end_date'] ?? null;
 
         // Base query for Test Cases
         $tcQuery = TestCase::query()->where('is_active', true);
-        if ($appId) $tcQuery->where('application_id', $appId);
-        if ($moduleId) $tcQuery->where('module_id', $moduleId);
-        if ($menuId) $tcQuery->where('menu_id', $menuId);
+        if ($startDate || $endDate) {
+            $tcQuery->inQaDateRange($startDate, $endDate);
+        }
+        if ($appId) {
+            $tcQuery->where('application_id', $appId);
+        }
+        if ($moduleId) {
+            $tcQuery->where('module_id', $moduleId);
+        }
+        if ($menuId) {
+            $tcQuery->where('menu_id', $menuId);
+        }
         if ($testerId) {
             $tcQuery->where(function ($q) use ($testerId) {
                 $q->where('assigned_tester_id', $testerId)
-                  ->orWhereIn('id', function ($sub) use ($testerId) {
-                      $sub->select('test_case_id')->from('test_executions')->where('tester_id', $testerId);
-                  })
-                  ->orWhereIn('id', function ($sub) use ($testerId) {
-                      $sub->select('qst.test_case_id')
-                          ->from('qa_schedule_test_cases as qst')
-                          ->join('qa_schedules as qs', 'qs.id', '=', 'qst.qa_schedule_id')
-                          ->where('qs.tester_id', $testerId);
-                  });
+                    ->orWhereIn('id', function ($sub) use ($testerId) {
+                        $sub->select('test_case_id')->from('test_executions')->where('tester_id', $testerId);
+                    })
+                    ->orWhereIn('id', function ($sub) use ($testerId) {
+                        $sub->select('qst.test_case_id')
+                            ->from('qa_schedule_test_cases as qst')
+                            ->join('qa_schedules as qs', 'qs.id', '=', 'qst.qa_schedule_id')
+                            ->where('qs.tester_id', $testerId);
+                    });
             });
         }
 
@@ -65,22 +79,27 @@ class DashboardController extends Controller
         $totalTestCases = $testCaseIds->count();
 
         // Latest execution per test case in scope
+        $latestExecutionDates = TestExecution::query()
+            ->whereIn('test_case_id', $testCaseIds)
+            ->when($startDate || $endDate, fn ($query) => $query->inQaDateRange($startDate, $endDate))
+            ->select('test_case_id')
+            ->selectRaw('MAX(executed_at) as max_date')
+            ->groupBy('test_case_id');
+
         $latestExecutions = DB::table('test_executions as te')
-            ->join(DB::raw('(SELECT test_case_id, MAX(executed_at) as max_date FROM test_executions GROUP BY test_case_id) as latest'), function ($join) {
+            ->joinSub($latestExecutionDates, 'latest', function ($join) {
                 $join->on('te.test_case_id', '=', 'latest.test_case_id')
-                     ->on('te.executed_at', '=', 'latest.max_date');
+                    ->on('te.executed_at', '=', 'latest.max_date');
             })
             ->whereIn('te.test_case_id', $testCaseIds)
-            ->when($startDate, fn($q) => $q->whereDate('te.executed_at', '>=', $startDate))
-            ->when($endDate, fn($q) => $q->whereDate('te.executed_at', '<=', $endDate))
-            ->when($testerId, fn($q) => $q->where('te.tester_id', $testerId))
+            ->when($testerId, fn ($q) => $q->where('te.tester_id', $testerId))
             ->select('te.test_case_id', 'te.status', 'te.executed_at')
             ->get();
 
         $passCount = $latestExecutions->where('status', 'PASS')->count();
         $failedCount = $latestExecutions->where('status', 'FAILED')->count();
         $pendingCount = $latestExecutions->where('status', 'PENDING')->count();
-        
+
         // Not tested = total test cases in scope minus those executed
         $executedTestCaseIds = $latestExecutions->pluck('test_case_id')->unique();
         $notTestedCount = max(0, $totalTestCases - $executedTestCaseIds->count());
@@ -90,12 +109,21 @@ class DashboardController extends Controller
 
         // Bugs Query
         $bugQuery = Bug::query();
-        if ($appId) $bugQuery->where('application_id', $appId);
-        if ($moduleId) $bugQuery->where('module_id', $moduleId);
-        if ($menuId) $bugQuery->where('menu_id', $menuId);
-        if ($testerId) $bugQuery->where('reporter_id', $testerId);
-        if ($startDate) $bugQuery->whereDate('report_date', '>=', $startDate);
-        if ($endDate) $bugQuery->whereDate('report_date', '<=', $endDate);
+        if ($appId) {
+            $bugQuery->where('application_id', $appId);
+        }
+        if ($moduleId) {
+            $bugQuery->where('module_id', $moduleId);
+        }
+        if ($menuId) {
+            $bugQuery->where('menu_id', $menuId);
+        }
+        if ($testerId) {
+            $bugQuery->where('reporter_id', $testerId);
+        }
+        if ($startDate || $endDate) {
+            $bugQuery->inQaDateRange($startDate, $endDate);
+        }
 
         $totalActiveBugs = (clone $bugQuery)->whereNotIn('status', ['Closed', 'Rejected'])->count();
         $criticalMajorBugs = (clone $bugQuery)->whereNotIn('status', ['Closed', 'Rejected'])
@@ -104,28 +132,48 @@ class DashboardController extends Controller
 
         // Schedules Query
         $schQuery = QaSchedule::query();
-        if ($appId) $schQuery->where('application_id', $appId);
-        if ($moduleId) $schQuery->where('module_id', $moduleId);
-        if ($menuId) $schQuery->where('menu_id', $menuId);
-        if ($testerId) $schQuery->where('tester_id', $testerId);
-        if ($startDate) $schQuery->whereDate('start_time', '>=', $startDate);
-        if ($endDate) $schQuery->whereDate('end_time', '<=', $endDate);
+        if ($appId) {
+            $schQuery->where('application_id', $appId);
+        }
+        if ($moduleId) {
+            $schQuery->where('module_id', $moduleId);
+        }
+        if ($menuId) {
+            $schQuery->where('menu_id', $menuId);
+        }
+        if ($testerId) {
+            $schQuery->where('tester_id', $testerId);
+        }
+        if ($startDate || $endDate) {
+            $schQuery->overlappingDateRange($startDate, $endDate);
+        }
 
         $activeSchedules = (clone $schQuery)->whereIn('status', ['Scheduled', 'In Progress'])->count();
         $overdueSchedules = (clone $schQuery)->where(function ($q) {
             $q->where('status', 'Overdue')
-              ->orWhere(function ($sub) {
-                  $sub->whereNotIn('status', ['Completed', 'Cancelled'])
-                      ->where('end_time', '<', now());
-              });
+                ->orWhere(function ($sub) {
+                    $sub->whereNotIn('status', ['Completed', 'Cancelled'])
+                        ->where('end_time', '<', now());
+                });
         })->count();
 
         // Retests waiting
         $retestQuery = Retest::query();
-        if ($appId) $retestQuery->where('application_id', $appId);
-        if ($moduleId) $retestQuery->where('module_id', $moduleId);
-        if ($menuId) $retestQuery->where('menu_id', $menuId);
-        if ($testerId) $retestQuery->where('tester_id', $testerId);
+        if ($appId) {
+            $retestQuery->where('application_id', $appId);
+        }
+        if ($moduleId) {
+            $retestQuery->where('module_id', $moduleId);
+        }
+        if ($menuId) {
+            $retestQuery->where('menu_id', $menuId);
+        }
+        if ($testerId) {
+            $retestQuery->where('tester_id', $testerId);
+        }
+        if ($startDate || $endDate) {
+            $retestQuery->inQaDateRange($startDate, $endDate);
+        }
         $waitingRetests = $retestQuery->where('status', 'Pending Retest')->count();
 
         // --- CHARTS DATA ---
@@ -142,7 +190,7 @@ class DashboardController extends Controller
             ->select('severity', DB::raw('count(*) as total'))
             ->groupBy('severity')
             ->pluck('total', 'severity');
-        $severityCounts = array_map(fn($sev) => (int) ($rawSeverities[$sev] ?? 0), $severities);
+        $severityCounts = array_map(fn ($sev) => (int) ($rawSeverities[$sev] ?? 0), $severities);
         $bugsBySeverity = [
             'labels' => $severities,
             'counts' => $severityCounts,
@@ -155,7 +203,7 @@ class DashboardController extends Controller
             ->select('status', DB::raw('count(*) as total'))
             ->groupBy('status')
             ->pluck('total', 'status');
-        $statusCounts = array_map(fn($st) => (int) ($rawStatuses[$st] ?? 0), $statuses);
+        $statusCounts = array_map(fn ($st) => (int) ($rawStatuses[$st] ?? 0), $statuses);
         $bugsByStatus = [
             'labels' => $statuses,
             'counts' => $statusCounts,
@@ -172,7 +220,7 @@ class DashboardController extends Controller
         $passedByApp = DB::table('test_executions as te')
             ->join(DB::raw('(SELECT test_case_id, MAX(executed_at) as max_date FROM test_executions GROUP BY test_case_id) as latest'), function ($join) {
                 $join->on('te.test_case_id', '=', 'latest.test_case_id')
-                     ->on('te.executed_at', '=', 'latest.max_date');
+                    ->on('te.executed_at', '=', 'latest.max_date');
             })
             ->join('test_cases as tc', 'tc.id', '=', 'te.test_case_id')
             ->where('tc.is_active', true)
@@ -207,15 +255,15 @@ class DashboardController extends Controller
         $trendPass = [];
         $trendFailed = [];
         foreach ($trendDates as $d) {
-            $passItem = $trendsQuery->first(fn($t) => $t->exec_date === $d && $t->status === 'PASS');
-            $failItem = $trendsQuery->first(fn($t) => $t->exec_date === $d && $t->status === 'FAILED');
+            $passItem = $trendsQuery->first(fn ($t) => $t->exec_date === $d && $t->status === 'PASS');
+            $failItem = $trendsQuery->first(fn ($t) => $t->exec_date === $d && $t->status === 'FAILED');
             $trendPass[] = $passItem ? $passItem->count : 0;
             $trendFailed[] = $failItem ? $failItem->count : 0;
         }
 
         return response()->json([
             'access_scope' => [
-                'is_restricted' => !$canViewAllData,
+                'is_restricted' => ! $canViewAllData,
                 'can_view_all_data' => $canViewAllData,
                 'can_view_exec_charts' => $canViewExecCharts,
                 'can_use_quick_actions' => $canUseQuickActions,

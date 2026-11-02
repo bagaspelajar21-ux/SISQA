@@ -9,6 +9,8 @@ class RetestEvidence extends Model
 {
     use HasFactory;
 
+    protected $table = 'retest_evidences';
+
     protected $fillable = [
         'retest_id',
         'file_name',

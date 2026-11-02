@@ -263,6 +263,99 @@
         <!-- Right Header Items -->
         <div class="flex items-center space-x-1.5 sm:space-x-2.5 shrink-0">
           <!-- Compact User Guide Button for Current Menu -->
+          <div class="relative">
+            <button
+              type="button"
+              @click="toggleNotificationPanel"
+              class="relative w-9 h-9 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-sky-100 flex items-center justify-center transition-all cursor-pointer"
+              title="Notifikasi"
+              aria-label="Buka notifikasi"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-4-5.7V5a2 2 0 00-4 0v.3A6 6 0 006 11v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 01-6 0v-1m6 0H9" />
+              </svg>
+              <span
+                v-if="unreadNotificationCount > 0"
+                class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center"
+              >
+                {{ unreadNotificationCount > 99 ? '99+' : unreadNotificationCount }}
+              </span>
+            </button>
+            <div
+              v-if="showNotificationPanel"
+              class="absolute right-0 top-full mt-3 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-2xl z-50"
+            >
+              <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100">
+                <div>
+                  <h2 class="text-xs font-black text-slate-900">Notifikasi</h2>
+                  <p class="text-[10px] text-slate-500">{{ unreadNotificationCount }} belum dibaca</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="unreadNotificationCount > 0"
+                    type="button"
+                    @click="markAllNotificationsRead"
+                    class="text-[10px] font-bold text-blue-700 hover:text-blue-900"
+                  >
+                    Tandai dibaca
+                  </button>
+                  <button
+                    v-if="browserNotificationPermission === 'default'"
+                    type="button"
+                    @click="enableBrowserNotifications"
+                    class="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700"
+                  >
+                    Aktifkan browser
+                  </button>
+                </div>
+              </div>
+              <p v-if="notificationError" class="px-4 py-2 text-[10px] text-rose-700 bg-rose-50">
+                {{ notificationError }}
+              </p>
+              <p
+                v-if="browserNotificationPermission === 'denied'"
+                class="px-4 py-2 text-[10px] text-amber-700 bg-amber-50"
+              >
+                Izin notifikasi browser ditolak. Notifikasi tetap tersedia di dalam aplikasi.
+              </p>
+              <p
+                v-if="browserNotificationPermission === 'unsupported'"
+                class="px-4 py-2 text-[10px] text-slate-600 bg-slate-50"
+              >
+                Browser ini tidak mendukung notifikasi sistem. Notifikasi tetap tersedia di dalam aplikasi.
+              </p>
+              <div class="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                <button
+                  v-for="notification in notifications"
+                  :key="notification.id"
+                  type="button"
+                  @click="openNotification(notification)"
+                  :class="[
+                    'w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors',
+                    notification.read_at ? 'bg-white' : 'bg-blue-50/60'
+                  ]"
+                >
+                  <span class="flex items-start gap-2">
+                    <span
+                      :class="[
+                        'mt-1.5 w-2 h-2 rounded-full shrink-0',
+                        notification.read_at ? 'bg-slate-200' : 'bg-blue-600'
+                      ]"
+                    ></span>
+                    <span class="min-w-0">
+                      <span class="block text-xs font-extrabold text-slate-900">{{ notification.data?.title }}</span>
+                      <span class="mt-1 block text-[11px] leading-relaxed text-slate-600">{{ notification.data?.message }}</span>
+                      <span class="mt-1 block text-[9px] text-slate-400">{{ formatNotificationTime(notification.created_at) }}</span>
+                    </span>
+                  </span>
+                </button>
+                <p v-if="notifications.length === 0" class="px-4 py-8 text-center text-xs text-slate-500">
+                  Belum ada notifikasi.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <button
             @click="openGuideModal"
             class="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/35 text-sky-100 text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer backdrop-blur-md"
@@ -541,6 +634,7 @@ const mainNavItems = [
   { path: '/guides', label: 'Panduan SISQA', shortLabel: 'Panduan', icon: 'guides' },
   { path: '/reports', label: 'QA Report', shortLabel: 'Report', icon: 'reports' },
   { path: '/reports/wa', label: 'Report WA', shortLabel: 'Report WA', icon: 'wa-report' },
+  { path: '/reports/weekly', label: 'Report Mingguan', shortLabel: 'Report Mingguan', icon: 'reports' },
   { path: '/activity-logs', label: 'Activity Logs', shortLabel: 'Log', icon: 'activity-logs' },
 ];
 
@@ -552,6 +646,7 @@ const masterSubItems = [
 
 const adminNavItems = [
   { path: '/users', label: 'Manajemen Pengguna', icon: 'users' },
+  { path: '/admin/reminders', label: 'Pengingat & Notifikasi', icon: 'activity-logs' },
 ];
 
 const currentHeaderIcon = computed(() => {
@@ -569,8 +664,108 @@ const mobileBottomNavItems = computed(() => {
 });
 
 const visibleMasterSubItems = computed(() => {
-  return masterSubItems.filter((item) => hasMenuAccess(item.path));
+  return isAdmin.value ? masterSubItems : [];
 });
+
+const notifications = ref([]);
+const unreadNotificationCount = ref(0);
+const showNotificationPanel = ref(false);
+const notificationError = ref('');
+const browserNotificationPermission = ref(
+  typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
+);
+const knownNotificationIds = new Set();
+let hasLoadedNotifications = false;
+let notificationPollHandle = null;
+
+const fetchNotifications = async () => {
+  try {
+    const response = await api.get('/notifications');
+    const incomingNotifications = response.data.notifications || [];
+    let browserError = '';
+
+    if (hasLoadedNotifications && browserNotificationPermission.value === 'granted') {
+      incomingNotifications
+        .filter((notification) => !knownNotificationIds.has(notification.id) && !notification.read_at)
+        .forEach((notification) => {
+          try {
+            const browserNotification = new Notification(
+              notification.data?.title || 'Notifikasi SISQA',
+              { body: notification.data?.message || '' }
+            );
+            browserNotification.onclick = () => {
+              window.focus();
+              if (notification.data?.url && notification.data.url !== '/notifications') {
+                router.push(notification.data.url);
+              }
+              browserNotification.close();
+            };
+          } catch (error) {
+            browserError = 'Notifikasi browser tidak dapat ditampilkan. Periksa izin browser Anda.';
+          }
+        });
+    }
+
+    notifications.value = incomingNotifications;
+    unreadNotificationCount.value = response.data.unread_count || 0;
+    incomingNotifications.forEach((notification) => knownNotificationIds.add(notification.id));
+    hasLoadedNotifications = true;
+    notificationError.value = browserError;
+  } catch (error) {
+    notificationError.value = error.response?.data?.message || 'Notifikasi gagal dimuat. Coba buka kembali panel ini.';
+  }
+};
+
+const toggleNotificationPanel = () => {
+  showNotificationPanel.value = !showNotificationPanel.value;
+  if (showNotificationPanel.value) {
+    fetchNotifications();
+  }
+};
+
+const openNotification = async (notification) => {
+  try {
+    if (!notification.read_at) {
+      await api.patch(`/notifications/${notification.id}/read`);
+    }
+    showNotificationPanel.value = false;
+    await fetchNotifications();
+    if (notification.data?.url && notification.data.url !== '/notifications') {
+      router.push(notification.data.url);
+    }
+  } catch (error) {
+    notificationError.value = error.response?.data?.message || 'Notifikasi gagal dibuka.';
+  }
+};
+
+const markAllNotificationsRead = async () => {
+  try {
+    await api.patch('/notifications/read-all');
+    await fetchNotifications();
+  } catch (error) {
+    notificationError.value = error.response?.data?.message || 'Notifikasi gagal ditandai telah dibaca.';
+  }
+};
+
+const enableBrowserNotifications = async () => {
+  if (!('Notification' in window)) {
+    browserNotificationPermission.value = 'unsupported';
+    notificationError.value = 'Browser ini tidak mendukung notifikasi sistem.';
+    return;
+  }
+
+  try {
+    browserNotificationPermission.value = await Notification.requestPermission();
+    notificationError.value = '';
+  } catch (error) {
+    notificationError.value = 'Permintaan izin notifikasi browser gagal. Periksa pengaturan browser Anda.';
+  }
+};
+
+const formatNotificationTime = (value) => {
+  if (!value) return '';
+  return new Date(value).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
+};
 
 // Built-in default guides per route path so every menu always has instant rich instructions
 const routeMenuMap = {
@@ -583,6 +778,7 @@ const routeMenuMap = {
   '/guides': 'Panduan SISQA',
   '/reports': 'QA Report',
   '/reports/wa': 'Report WA',
+  '/reports/weekly': 'Report Mingguan',
   '/activity-logs': 'Activity Logs',
   '/master/apps': 'Master Aplikasi',
   '/master/modules': 'Master Modul',
@@ -751,6 +947,23 @@ const fallbackGuides = {
       { step_number: 3, title: 'Klik "📋 Salin Teks WA" atau "📲 Kirim ke WhatsApp"', description: 'Salin teks laporan yang sudah terformat tebal/miring khas WhatsApp atau langsung buka aplikasi WhatsApp.', notes: 'Teks di dalam kotak preview hijau juga dapat diedit langsung sebelum dikirim.' },
     ],
   },
+  'Report Mingguan': {
+    guide_code: 'GUIDE-WORK-01',
+    title: 'Panduan Report Pekerjaan Mingguan & Bulanan QA',
+    menu_name: 'Report Mingguan',
+    category: 'Pelaporan Pekerjaan QA',
+    version: '1.0',
+    status: 'Published',
+    observation_status: 'Sudah Diamati',
+    menu_purpose: 'Menyusun ringkasan pekerjaan QA dalam periode mingguan atau bulanan.',
+    menu_function: 'Menampilkan eksekusi test case, bug yang dilaporkan, dan hasil retest, lalu menyalin laporan WhatsApp atau mengunduh PDF.',
+    tips: 'Pilih tanggal yang mewakili minggu atau bulan yang ingin dilaporkan, lalu klik Tampilkan Laporan.',
+    troubleshooting: 'Jika laporan kosong, pastikan aktivitas QA telah tercatat pada periode yang dipilih.',
+    steps: [
+      { step_number: 1, title: 'Pilih periode laporan', description: 'Pilih Mingguan atau Bulanan, tentukan tanggal, lalu klik Tampilkan Laporan.', notes: 'Periode mingguan dihitung dari Senin hingga Minggu.' },
+      { step_number: 2, title: 'Bagikan laporan', description: 'Salin atau kirim teks WhatsApp, atau unduh PDF untuk dokumentasi.', notes: 'Isi laporan berasal dari eksekusi pengujian, bug, dan retest yang tercatat.' },
+    ],
+  },
   'Activity Logs': {
     guide_code: 'GUIDE-LOG-01',
     title: 'Panduan Audit Trail & Activity Logs',
@@ -777,11 +990,11 @@ const fallbackGuides = {
     status: 'Published',
     observation_status: 'Sudah Diamati',
     menu_purpose: 'Mengelola daftar aplikasi yang berada di bawah pengawasan kualitas tim QA.',
-    menu_function: 'Menambah, mengedit, dan menghapus data aplikasi beserta kode unik, versi, dan environment.',
+    menu_function: 'Menambah, mengedit, dan menghapus data aplikasi beserta kode otomatis, versi, dan environment.',
     tips: 'Selalu perbarui versi aplikasi saat rilis baru naik ke Staging atau Production.',
-    troubleshooting: 'Pastikan kode aplikasi unik saat menambahkan aplikasi baru.',
+    troubleshooting: 'Kode aplikasi dibuat otomatis saat aplikasi baru disimpan.',
     steps: [
-      { step_number: 1, title: 'Klik "+ Tambah Aplikasi"', description: 'Masukkan Nama Aplikasi, Kode Unik, Versi, Environment, dan Deskripsi.', notes: 'Aplikasi yang aktif akan muncul di seluruh pilihan filter.' },
+      { step_number: 1, title: 'Klik "+ Tambah Aplikasi"', description: 'Masukkan Nama Aplikasi, Versi, Environment, dan Deskripsi.', notes: 'Kode aplikasi dibuat otomatis dan aplikasi aktif akan muncul di seluruh pilihan filter.' },
       { step_number: 2, title: 'Gunakan Tombol "Edit" atau "Hapus"', description: 'Klik "Edit" untuk mengubah data aplikasi atau "Hapus" untuk menghapus aplikasi.', notes: 'Tabel menampilkan jumlah modul dan test case terkait.' },
     ],
   },
@@ -795,10 +1008,10 @@ const fallbackGuides = {
     observation_status: 'Sudah Diamati',
     menu_purpose: 'Mengelola pembagian modul fitur di dalam setiap aplikasi.',
     menu_function: 'Menambah, mengubah, dan menghapus modul yang berelasi dengan aplikasi induk.',
-    tips: 'Gunakan kode modul singkat dan jelas untuk mempermudah identifikasi.',
+    tips: 'Kode modul dibuat otomatis untuk mempermudah identifikasi.',
     troubleshooting: 'Pilih aplikasi induk yang tepat saat membuat modul baru.',
     steps: [
-      { step_number: 1, title: 'Klik "+ Tambah Modul"', description: 'Pilih Aplikasi Induk, lalu isi Nama Modul dan Kode Modul.', notes: 'Modul otomatis terhubung pada dropdown bertingkat.' },
+      { step_number: 1, title: 'Klik "+ Tambah Modul"', description: 'Pilih Aplikasi Induk, lalu isi Nama Modul.', notes: 'Kode modul dibuat otomatis dan modul terhubung pada dropdown bertingkat.' },
       { step_number: 2, title: 'Kelola dengan Tombol "Edit" & "Hapus"', description: 'Perbarui informasi modul atau hapus modul yang tidak diperlukan.', notes: 'Menampilkan jumlah menu di bawah modul tersebut.' },
     ],
   },
@@ -815,7 +1028,7 @@ const fallbackGuides = {
     tips: 'Cantumkan path URL/Route menu agar tester dapat langsung merujuk ke halaman terkait.',
     troubleshooting: 'Saat mengganti Aplikasi di form, pilihan Modul akan otomatis menyesuaikan.',
     steps: [
-      { step_number: 1, title: 'Klik "+ Tambah Menu"', description: 'Pilih Aplikasi, pilih Modul terkait, lalu isi Nama Menu, Kode Menu, dan Route URL.', notes: 'Konsistensi relasi dijaga oleh validasi backend.' },
+      { step_number: 1, title: 'Klik "+ Tambah Menu"', description: 'Pilih Aplikasi, pilih Modul terkait, lalu isi Nama Menu dan Route URL.', notes: 'Kode menu dibuat otomatis dan konsistensi relasi dijaga oleh validasi backend.' },
       { step_number: 2, title: 'Edit atau Hapus Menu', description: 'Gunakan tombol "Edit" atau "Hapus" pada kolom aksi.', notes: 'Menu akan tampil di filter bertingkat saat memilih modul.' },
     ],
   },
@@ -926,10 +1139,15 @@ onMounted(async () => {
   lastAuthSync = Date.now();
   await checkAuth();
   enforceRoutePermission();
+  await fetchNotifications();
+  notificationPollHandle = window.setInterval(fetchNotifications, 45000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('focus', syncPermissionsOnFocus);
+  if (notificationPollHandle !== null) {
+    window.clearInterval(notificationPollHandle);
+  }
 });
 
 const handleLogout = () => {

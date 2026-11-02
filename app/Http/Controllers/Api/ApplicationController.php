@@ -7,7 +7,6 @@ use App\Models\ActivityLog;
 use App\Models\Application;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class ApplicationController extends Controller
 {
@@ -18,8 +17,8 @@ class ApplicationController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%");
+                    ->orWhere('code', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%");
             });
         }
 
@@ -37,6 +36,7 @@ class ApplicationController extends Controller
     public function all(): JsonResponse
     {
         $apps = Application::where('is_active', true)->orderBy('name')->get(['id', 'name', 'code', 'version']);
+
         return response()->json($apps);
     }
 
@@ -44,13 +44,13 @@ class ApplicationController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'code' => 'required|string|max:50|unique:applications,code',
             'description' => 'nullable|string',
             'version' => 'nullable|string|max:50',
             'environment' => 'nullable|string|max:50',
             'is_active' => 'boolean',
         ]);
 
+        $validated['code'] = $this->generateCode();
         $app = Application::create($validated);
 
         ActivityLog::record(
@@ -73,7 +73,7 @@ class ApplicationController extends Controller
     {
         return response()->json([
             'application' => $application->load([
-                'modules' => fn($q) => $q->withCount(['menus', 'testCases', 'bugs']),
+                'modules' => fn ($q) => $q->withCount(['menus', 'testCases', 'bugs']),
                 'menus',
             ])->loadCount(['testCases', 'bugs', 'schedules']),
         ]);
@@ -83,14 +83,13 @@ class ApplicationController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'code' => ['required', 'string', 'max:50', Rule::unique('applications')->ignore($application->id)],
             'description' => 'nullable|string',
             'version' => 'nullable|string|max:50',
             'environment' => 'nullable|string|max:50',
             'is_active' => 'boolean',
         ]);
 
-        $old = $application->only(['name', 'code', 'description', 'version', 'environment', 'is_active']);
+        $old = $application->only(['name', 'description', 'version', 'environment', 'is_active']);
         $application->update($validated);
 
         ActivityLog::record(
@@ -127,5 +126,17 @@ class ApplicationController extends Controller
         return response()->json([
             'message' => 'Aplikasi berhasil dihapus.',
         ]);
+    }
+
+    private function generateCode(): string
+    {
+        $nextId = (int) Application::withTrashed()->max('id') + 1;
+
+        do {
+            $code = sprintf('APP-%04d', $nextId);
+            $nextId++;
+        } while (Application::withTrashed()->where('code', $code)->exists());
+
+        return $code;
     }
 }

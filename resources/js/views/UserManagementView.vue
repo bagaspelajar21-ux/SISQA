@@ -434,7 +434,7 @@ const definitions = reactive({
 
 const roleUserConfig = reactive({
   menus: ['/', '/schedules', '/test-cases', '/bugs', '/retests', '/flows', '/guides', '/reports', '/reports/wa', '/activity-logs'],
-  features: ['execute_test', 'create_test', 'import_test_excel', 'create_bug', 'edit_bug', 'import_bug_excel', 'create_retest', 'manage_flow', 'export_report'],
+  features: ['create_schedule', 'execute_test', 'create_test', 'import_test_excel', 'create_bug', 'edit_bug', 'import_bug_excel', 'create_retest', 'manage_flow', 'export_report'],
 });
 
 const form = reactive({

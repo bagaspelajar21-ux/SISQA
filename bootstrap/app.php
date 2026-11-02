@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Middleware\EnsureUserHasMenuAccess;
+use App\Http\Middleware\EnsureUserIsAdmin;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -12,10 +15,16 @@ $app = Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->command('notifications:dispatch-due')
+            ->everyMinute()
+            ->withoutOverlapping(5);
+    })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(at: '*');
         $middleware->alias([
-            'admin' => \App\Http\Middleware\EnsureUserIsAdmin::class,
+            'admin' => EnsureUserIsAdmin::class,
+            'permission' => EnsureUserHasMenuAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

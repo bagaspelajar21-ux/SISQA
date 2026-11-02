@@ -78,7 +78,7 @@
 
     <!-- Filters -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
         <div>
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Cari Skenario</label>
           <input
@@ -128,6 +128,26 @@
             <option value="Low">Low</option>
           </select>
         </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Mulai QA</label>
+          <input
+            v-model="filters.start_date"
+            :max="filters.end_date || undefined"
+            type="date"
+            @change="fetchTestCases(1)"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Selesai QA</label>
+          <input
+            v-model="filters.end_date"
+            :min="filters.start_date || undefined"
+            type="date"
+            @change="fetchTestCases(1)"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
         <div class="flex items-end">
           <button
             @click="resetFilters"
@@ -165,6 +185,20 @@
               <td class="py-3.5 px-4">
                 <div class="font-bold text-slate-900">{{ tc.title }}</div>
                 <div class="text-[10px] font-mono text-blue-600">{{ tc.test_case_code }}</div>
+                <div v-if="tc.schedules?.length" class="mt-1 space-y-0.5">
+                  <div
+                    v-for="schedule in tc.schedules.slice(0, 2)"
+                    :key="schedule.id"
+                    class="text-[10px] text-slate-500"
+                  >
+                    <span class="font-mono font-semibold text-indigo-600">{{ schedule.schedule_code }}</span>
+                    · {{ formatDateTime(schedule.start_time) }} – {{ formatDateTime(schedule.end_time) }}
+                  </div>
+                </div>
+                <div v-else-if="tc.latest_execution?.schedule" class="mt-1 text-[10px] text-slate-500">
+                  <span class="font-mono font-semibold text-indigo-600">{{ tc.latest_execution.schedule.schedule_code }}</span>
+                  · {{ formatDateTime(tc.latest_execution.schedule.start_time) }} – {{ formatDateTime(tc.latest_execution.schedule.end_time) }}
+                </div>
               </td>
               <td class="py-3.5 px-4">
                 <div class="font-bold text-slate-800">{{ tc.application?.name || '-' }}</div>
@@ -193,14 +227,14 @@
                 <div class="flex items-center justify-end gap-1.5">
                   <!-- Eksekusi Button / Locked if Schedule Expired -->
                   <span
-                    v-if="tc.is_schedule_expired"
+                    v-if="tc.is_schedule_expired && !tc.can_continue_qa"
                     class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px] cursor-not-allowed select-none"
                     :title="`Jadwal QA (${tc.expired_schedule_code || ''}) telah melewati batas waktu (${tc.expired_schedule_end || ''}). Tidak dapat melanjutkan QA.`"
                   >
                     🔒 Jadwal Lewat Waktu
                   </span>
                   <button
-                    v-else-if="hasFeatureAccess('execute_test')"
+                    v-else-if="hasFeatureAccess('execute_test') && tc.can_continue_qa !== false"
                     @click="openExecuteModal(tc)"
                     class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold text-[11px] transition-colors cursor-pointer"
                     title="Eksekusi Testing"
@@ -215,7 +249,7 @@
                     Detail
                   </button>
                   <button
-                    v-if="isAdmin"
+                    v-if="hasFeatureAccess('create_test')"
                     @click="openEditModal(tc)"
                     class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Edit Skenario"
@@ -223,7 +257,7 @@
                     Edit
                   </button>
                   <button
-                    v-if="isAdmin"
+                    v-if="hasFeatureAccess('create_test')"
                     @click="confirmDelete(tc)"
                     class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Hapus Skenario"
@@ -635,7 +669,7 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
 const route = useRoute();
-const { isAdmin, hasFeatureAccess } = useAuth();
+const { hasFeatureAccess } = useAuth();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -658,6 +692,8 @@ const filters = reactive({
   application_id: '',
   status: '',
   priority: '',
+  start_date: '',
+  end_date: '',
 });
 
 const showModal = ref(false);
@@ -791,6 +827,8 @@ const resetFilters = () => {
   filters.application_id = '';
   filters.status = '';
   filters.priority = '';
+  filters.start_date = '';
+  filters.end_date = '';
   fetchTestCases(1);
 };
 

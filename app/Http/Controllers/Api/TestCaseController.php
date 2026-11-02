@@ -7,12 +7,13 @@ use App\Models\ActivityLog;
 use App\Models\Application;
 use App\Models\ApplicationMenu;
 use App\Models\ApplicationModule;
+use App\Models\QaSchedule;
 use App\Models\TestCase;
 use App\Models\TestExecution;
 use App\Models\TestExecutionEvidence;
+use App\Services\QaScheduleLockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -22,9 +23,32 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class TestCaseController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
-        $query = TestCase::with(['application', 'module', 'menu', 'assignedTester', 'latestExecution.tester', 'schedules']);
+        $dateRange = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $startDate = $dateRange['start_date'] ?? null;
+        $endDate = $dateRange['end_date'] ?? null;
+
+        $query = TestCase::with([
+            'application',
+            'module.schedules',
+            'menu.schedules',
+            'assignedTester',
+            'latestExecution.tester',
+            'latestExecution.schedule',
+            'schedules' => fn ($scheduleQuery) => $scheduleQuery->orderByDesc('start_time'),
+        ]);
+
+        if (! $request->user()->isAdmin()) {
+            $scheduleLock->excludeLockedTestCases($query);
+        }
+
+        if ($startDate || $endDate) {
+            $query->inQaDateRange($startDate, $endDate);
+        }
 
         if ($appId = $request->input('application_id')) {
             $query->where('application_id', $appId);
@@ -49,8 +73,8 @@ class TestCaseController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('test_case_code', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%");
+                    ->orWhere('test_case_code', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%");
             });
         }
 
@@ -66,24 +90,24 @@ class TestCaseController extends Controller
 
         $testCases = $query->orderBy('id', 'desc')->paginate($request->input('per_page', 15));
 
-        $testCases->getCollection()->transform(function ($tc) {
-            $schedules = $tc->schedules ?? collect();
-            if ($schedules->isNotEmpty()) {
-                $activeValid = $schedules->first(fn($s) => $s->end_time && now()->lte($s->end_time) && !in_array($s->status, ['Cancelled']));
-                $latestExpired = $schedules->sortByDesc('end_time')->first(fn($s) => $s->end_time && now()->gt($s->end_time));
-                $tc->is_schedule_expired = !$activeValid && (bool) $latestExpired;
-                $tc->expired_schedule_code = $latestExpired?->schedule_code;
-                $tc->expired_schedule_end = $latestExpired?->end_time?->format('d/m/Y H:i');
-            } else {
-                $tc->is_schedule_expired = false;
-            }
+        $isAdmin = $request->user()->isAdmin();
+        $testCases->getCollection()->transform(function ($tc) use ($isAdmin, $scheduleLock) {
+            $schedules = $tc->schedules
+                ->concat($tc->module?->schedules ?? collect())
+                ->concat($tc->menu?->schedules ?? collect());
+            $latestExpired = $scheduleLock->expiredScheduleFromSchedules($schedules);
+            $tc->is_schedule_expired = $latestExpired !== null;
+            $tc->expired_schedule_code = $latestExpired?->schedule_code;
+            $tc->expired_schedule_end = $latestExpired?->end_time?->format('d/m/Y H:i');
+            $tc->can_continue_qa = $isAdmin || ! $tc->is_schedule_expired;
+
             return $tc;
         });
 
         return response()->json($testCases);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $validated = $request->validate([
             'title' => 'required|string|max:255',
@@ -102,10 +126,20 @@ class TestCaseController extends Controller
             'is_active' => 'boolean',
         ]);
 
+        if (! $request->user()->isAdmin()
+            && ($lockedSchedule = $scheduleLock->expiredScheduleForModuleMenu(
+                isset($validated['module_id']) ? (int) $validated['module_id'] : null,
+                isset($validated['menu_id']) ? (int) $validated['menu_id'] : null,
+            )) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         // Auto-generate test case code
         $prefix = 'TC';
         $count = TestCase::count();
-        $validated['test_case_code'] = sprintf("%s-%04d", $prefix, $count + 1);
+        $validated['test_case_code'] = sprintf('%s-%04d', $prefix, $count + 1);
         $validated['is_active'] = $validated['is_active'] ?? true;
 
         $testCase = TestCase::create($validated);
@@ -126,8 +160,15 @@ class TestCaseController extends Controller
         ], 201);
     }
 
-    public function show(TestCase $testCase): JsonResponse
+    public function show(Request $request, TestCase $testCase, QaScheduleLockService $scheduleLock): JsonResponse
     {
+        if (! $request->user()->isAdmin()
+            && ($lockedSchedule = $scheduleLock->expiredScheduleForTestCase($testCase)) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         return response()->json([
             'test_case' => $testCase->load([
                 'application',
@@ -143,8 +184,15 @@ class TestCaseController extends Controller
         ]);
     }
 
-    public function update(Request $request, TestCase $testCase): JsonResponse
+    public function update(Request $request, TestCase $testCase, QaScheduleLockService $scheduleLock): JsonResponse
     {
+        if (! $request->user()->isAdmin()
+            && ($lockedSchedule = $scheduleLock->expiredScheduleForTestCase($testCase)) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'application_id' => 'required|exists:applications,id',
@@ -161,6 +209,16 @@ class TestCaseController extends Controller
             'priority' => ['required', Rule::in(['Urgent', 'High', 'Medium', 'Low'])],
             'is_active' => 'boolean',
         ]);
+
+        if (! $request->user()->isAdmin()
+            && ($lockedSchedule = $scheduleLock->expiredScheduleForModuleMenu(
+                isset($validated['module_id']) ? (int) $validated['module_id'] : null,
+                isset($validated['menu_id']) ? (int) $validated['menu_id'] : null,
+            )) !== null) {
+            return response()->json([
+                'message' => "Modul/menu tujuan terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
 
         $old = $testCase->only(['title', 'priority', 'assigned_tester_id', 'is_active', 'expected_result']);
         $testCase->update($validated);
@@ -181,8 +239,15 @@ class TestCaseController extends Controller
         ]);
     }
 
-    public function destroy(TestCase $testCase): JsonResponse
+    public function destroy(Request $request, TestCase $testCase, QaScheduleLockService $scheduleLock): JsonResponse
     {
+        if (! $request->user()->isAdmin()
+            && ($lockedSchedule = $scheduleLock->expiredScheduleForTestCase($testCase)) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         $code = $testCase->test_case_code;
         $testCase->delete();
 
@@ -201,7 +266,7 @@ class TestCaseController extends Controller
         ]);
     }
 
-    public function execute(Request $request, TestCase $testCase): JsonResponse
+    public function execute(Request $request, TestCase $testCase, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $user = $request->user();
 
@@ -214,23 +279,31 @@ class TestCaseController extends Controller
             'evidences.*' => 'file|max:51200|mimes:png,jpg,jpeg,webp,pdf,mp4',
         ]);
 
-        // Check if linked QA Schedule date/time has passed (expired)
-        $schedules = $testCase->schedules()->get();
-        if (!empty($validated['qa_schedule_id'])) {
-            $targetSchedule = \App\Models\QaSchedule::find($validated['qa_schedule_id']);
-            if ($targetSchedule && $targetSchedule->end_time && now()->gt($targetSchedule->end_time)) {
-                return response()->json([
-                    'message' => "Waktu pelaksanaan Jadwal QA ({$targetSchedule->schedule_code}) telah lewat pada " . $targetSchedule->end_time->format('d/m/Y H:i') . ". Anda sudah tidak dapat melanjutkan pengujian QA.",
-                ], 422);
-            }
-        } elseif ($schedules->isNotEmpty()) {
-            $activeValid = $schedules->first(fn($s) => $s->end_time && now()->lte($s->end_time) && !in_array($s->status, ['Cancelled']));
-            $latestExpired = $schedules->sortByDesc('end_time')->first(fn($s) => $s->end_time && now()->gt($s->end_time));
-            if (!$activeValid && $latestExpired) {
-                return response()->json([
-                    'message' => "Jadwal QA ({$latestExpired->schedule_code}) untuk skenario ini telah melewati batas hari & jam (" . $latestExpired->end_time->format('d/m/Y H:i') . "). Pengujian tidak dapat dilanjutkan.",
-                ], 422);
-            }
+        $lockedSchedule = $request->user()->isAdmin()
+            ? null
+            : $scheduleLock->expiredScheduleForContext(
+                isset($validated['qa_schedule_id']) ? (int) $validated['qa_schedule_id'] : null,
+                $testCase->id,
+                $testCase->module_id,
+                $testCase->menu_id,
+            );
+
+        if (
+            ! empty($validated['qa_schedule_id'])
+            && ! $testCase->schedules()->whereKey($validated['qa_schedule_id'])->exists()
+        ) {
+            return response()->json([
+                'message' => 'Jadwal QA yang dipilih tidak terhubung dengan test case ini.',
+                'errors' => [
+                    'qa_schedule_id' => ['Jadwal QA yang dipilih tidak terhubung dengan test case ini.'],
+                ],
+            ], 422);
+        }
+
+        if ($lockedSchedule !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir pada {$lockedSchedule->end_time->format('d/m/Y H:i')}. Aktivitas QA terkunci; hubungi Admin jika perlu melanjutkan.",
+            ], 403);
         }
 
         $execution = TestExecution::create([
@@ -285,7 +358,7 @@ class TestCaseController extends Controller
 
     public function downloadTemplate(): StreamedResponse
     {
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Template Test Case');
 
@@ -304,9 +377,9 @@ class TestCaseController extends Controller
         ];
 
         foreach ($headers as $col => $text) {
-            $sheet->setCellValue($col . '1', $text);
-            $sheet->getStyle($col . '1')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-            $sheet->getStyle($col . '1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2563EB');
+            $sheet->setCellValue($col.'1', $text);
+            $sheet->getStyle($col.'1')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle($col.'1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('2563EB');
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
@@ -356,7 +429,7 @@ class TestCaseController extends Controller
         );
     }
 
-    public function importExcel(Request $request): JsonResponse
+    public function importExcel(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $user = $request->user();
 
@@ -370,7 +443,16 @@ class TestCaseController extends Controller
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray(null, true, true, true);
 
-        $defaultAppId = $request->input('application_id') ?: Application::first()?->id;
+        $defaultAppId = $request->input('application_id')
+            ? (int) $request->input('application_id')
+            : Application::first()?->id;
+        if (! $user->isAdmin()
+            && ($lockedSchedule = $this->expiredScheduleForImportRows($rows, $defaultAppId, $scheduleLock)) !== null) {
+            return response()->json([
+                'message' => "Impor dibatalkan karena modul/menu terkunci oleh jadwal QA ({$lockedSchedule->schedule_code}) yang telah berakhir.",
+            ], 403);
+        }
+
         $importedCount = 0;
 
         foreach ($rows as $rowIndex => $row) {
@@ -405,7 +487,7 @@ class TestCaseController extends Controller
                     $appId = $foundApp->id;
                 }
             }
-            if (!$appId) {
+            if (! $appId) {
                 continue;
             }
 
@@ -415,15 +497,15 @@ class TestCaseController extends Controller
                 $foundMod = ApplicationModule::where('application_id', $appId)
                     ->where(function ($q) use ($modName) {
                         $q->where('name', 'like', $modName)
-                          ->orWhere('code', 'like', $modName);
+                            ->orWhere('code', 'like', $modName);
                     })->first();
 
-                if (!$foundMod) {
+                if (! $foundMod) {
                     $codePrefix = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $modName), 0, 5) ?: 'MOD');
                     $foundMod = ApplicationModule::create([
                         'application_id' => $appId,
                         'name' => $modName,
-                        'code' => $codePrefix . '-' . rand(10, 99),
+                        'code' => $codePrefix.'-'.rand(10, 99),
                         'description' => 'Diimpor dari Excel',
                     ]);
                 }
@@ -437,13 +519,13 @@ class TestCaseController extends Controller
                     ->where('name', 'like', $menuName)
                     ->first();
 
-                if (!$foundMenu) {
+                if (! $foundMenu) {
                     $codePrefix = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $menuName), 0, 5) ?: 'MNU');
                     $foundMenu = ApplicationMenu::create([
                         'application_id' => $appId,
                         'module_id' => $modId,
                         'name' => $menuName,
-                        'code' => $codePrefix . '-' . rand(10, 99),
+                        'code' => $codePrefix.'-'.rand(10, 99),
                     ]);
                 }
                 $menuId = $foundMenu->id;
@@ -452,10 +534,10 @@ class TestCaseController extends Controller
             $priority = in_array($priorityRaw, ['Urgent', 'High', 'Medium', 'Low']) ? $priorityRaw : 'Medium';
 
             $nextNum = (int) TestCase::max('id') + 1;
-            $tcCode = sprintf("TC-%04d", $nextNum);
+            $tcCode = sprintf('TC-%04d', $nextNum);
             while (TestCase::where('test_case_code', $tcCode)->exists()) {
                 $nextNum++;
-                $tcCode = sprintf("TC-%04d", $nextNum);
+                $tcCode = sprintf('TC-%04d', $nextNum);
             }
 
             $tc = TestCase::create([
@@ -502,5 +584,58 @@ class TestCaseController extends Controller
             'message' => "Berhasil mengimpor {$importedCount} Test Case dari file Excel.",
             'imported_count' => $importedCount,
         ]);
+    }
+
+    private function expiredScheduleForImportRows(
+        array $rows,
+        ?int $defaultAppId,
+        QaScheduleLockService $scheduleLock,
+    ): ?QaSchedule {
+        foreach ($rows as $rowIndex => $row) {
+            if ($rowIndex === 1 || (trim((string) ($row['D'] ?? '')) === '' && trim((string) ($row['I'] ?? '')) === '')) {
+                continue;
+            }
+
+            $appId = $defaultAppId;
+            $appName = trim((string) ($row['A'] ?? ''));
+            if ($appName !== '') {
+                $appId = Application::query()
+                    ->where('name', 'like', "%{$appName}%")
+                    ->orWhere('code', 'like', "%{$appName}%")
+                    ->value('id') ?? $appId;
+            }
+
+            $moduleName = trim((string) ($row['B'] ?? ''));
+            if (! $appId || $moduleName === '') {
+                continue;
+            }
+
+            $module = ApplicationModule::query()
+                ->where('application_id', $appId)
+                ->where(function ($query) use ($moduleName): void {
+                    $query->where('name', 'like', $moduleName)
+                        ->orWhere('code', 'like', $moduleName);
+                })
+                ->first();
+
+            if (! $module) {
+                continue;
+            }
+
+            $menuName = trim((string) ($row['C'] ?? ''));
+            $menuId = $menuName === ''
+                ? null
+                : ApplicationMenu::query()
+                    ->where('module_id', $module->id)
+                    ->where('name', 'like', $menuName)
+                    ->value('id');
+            $lockedSchedule = $scheduleLock->expiredScheduleForModuleMenu($module->id, $menuId);
+
+            if ($lockedSchedule !== null) {
+                return $lockedSchedule;
+            }
+        }
+
+        return null;
     }
 }

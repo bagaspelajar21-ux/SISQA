@@ -57,6 +57,28 @@
             padding: 6px;
             text-align: center;
         }
+        .module-summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+        }
+        .module-summary-table th {
+            background-color: #F4B400;
+            color: #111827;
+            border: 1px solid #D1D5DB;
+            padding: 5px;
+            font-size: 8.5px;
+            text-align: center;
+        }
+        .module-summary-table td {
+            border: 1px solid #D1D5DB;
+            padding: 4px 5px;
+            font-size: 8.5px;
+        }
+        .module-summary-total td {
+            background-color: #FDE68A;
+            font-weight: bold;
+        }
         .section-title {
             font-size: 11px;
             font-weight: bold;
@@ -161,6 +183,45 @@
                 <td style="color: #4B5563;">{{ $data['summary']['not_tested'] }}</td>
                 <td style="color: #2563EB;">{{ $data['summary']['success_rate'] }}%</td>
                 <td style="color: #DC2626;">{{ $data['summary']['active_bugs'] }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">
+        Hasil QA per Modul ({{ $data['filters']['start_date'] }} s/d {{ $data['filters']['end_date'] }})
+    </div>
+    <table class="module-summary-table">
+        <thead>
+            <tr>
+                <th style="width: 6%;">No</th>
+                <th style="text-align: left;">Modul</th>
+                <th style="width: 16%;">Total Test</th>
+                <th style="width: 16%;">PASS</th>
+                <th style="width: 16%;">FAIL</th>
+                <th style="width: 16%;">NOT TEST</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($data['module_progress'] as $idx => $module)
+            <tr>
+                <td style="text-align: center;">{{ $idx + 1 }}</td>
+                <td>{{ $module['module_name'] }}</td>
+                <td style="text-align: center;">{{ $module['total_tc'] }}</td>
+                <td style="text-align: center; color: #166534;">{{ $module['passed_tc'] }}</td>
+                <td style="text-align: center; color: #991B1B;">{{ $module['failed_tc'] }}</td>
+                <td style="text-align: center;">{{ $module['not_tested_tc'] }}</td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="6" style="text-align: center; color: #94A3B8;">Tidak ada test case pada periode ini.</td>
+            </tr>
+            @endforelse
+            <tr class="module-summary-total">
+                <td colspan="2" style="text-align: center;">TOTAL</td>
+                <td style="text-align: center;">{{ $data['module_progress_totals']['total_tc'] }}</td>
+                <td style="text-align: center;">{{ $data['module_progress_totals']['passed_tc'] }}</td>
+                <td style="text-align: center;">{{ $data['module_progress_totals']['failed_tc'] }}</td>
+                <td style="text-align: center;">{{ $data['module_progress_totals']['not_tested_tc'] }}</td>
             </tr>
         </tbody>
     </table>

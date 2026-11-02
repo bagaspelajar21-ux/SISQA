@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -31,6 +33,38 @@ class TestCase extends Model
     protected $casts = [
         'is_active' => 'boolean',
     ];
+
+    #[Scope]
+    protected function inQaDateRange(Builder $query, ?string $startDate, ?string $endDate): void
+    {
+        $applyActivityDateRange = static function (Builder $query, string $column) use ($startDate, $endDate): void {
+            if ($startDate) {
+                $query->whereDate($column, '>=', $startDate);
+            }
+
+            if ($endDate) {
+                $query->whereDate($column, '<=', $endDate);
+            }
+        };
+
+        $query->where(function (Builder $query) use ($startDate, $endDate, $applyActivityDateRange): void {
+            $query->whereHas('schedules', fn (Builder $scheduleQuery) => $scheduleQuery->overlappingDateRange($startDate, $endDate))
+                ->orWhereHas('executions', function (Builder $executionQuery) use ($startDate, $endDate): void {
+                    $executionQuery->whereHas('schedule', fn (Builder $scheduleQuery) => $scheduleQuery->overlappingDateRange($startDate, $endDate));
+                })
+                ->orWhere(function (Builder $unscheduledQuery) use ($applyActivityDateRange): void {
+                    $unscheduledQuery->whereDoesntHave('schedules')
+                        ->whereDoesntHave('executions.schedule')
+                        ->where(function (Builder $activityQuery) use ($applyActivityDateRange): void {
+                            $activityQuery->whereHas('executions', fn (Builder $executionQuery) => $applyActivityDateRange($executionQuery, 'executed_at'))
+                                ->orWhere(function (Builder $neverExecutedQuery) use ($applyActivityDateRange): void {
+                                    $neverExecutedQuery->whereDoesntHave('executions');
+                                    $applyActivityDateRange($neverExecutedQuery, 'test_cases.created_at');
+                                });
+                        });
+                });
+        });
+    }
 
     public function application()
     {

@@ -15,9 +15,11 @@
         <div v-if="hasFeatureAccess('create_retest')" class="shrink-0">
           <button
             @click="openNewRetestModal"
+            :disabled="readyBugs.length === 0"
             class="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-xs font-bold text-white shadow-md shadow-cyan-600/30 transition-all flex items-center space-x-1.5 cursor-pointer"
+            :class="{ 'cursor-not-allowed opacity-50': readyBugs.length === 0 }"
           >
-            <span>+ Input Hasil Retesting</span>
+            <span>{{ readyBugs.length ? '+ Input Hasil Retesting' : 'Tidak ada bug yang dapat diretest' }}</span>
           </button>
         </div>
       </div>
@@ -57,7 +59,7 @@
 
     <!-- Filters -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div>
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Status Retesting</label>
           <select
@@ -82,6 +84,26 @@
             <option value="">Semua Aplikasi</option>
             <option v-for="app in apps" :key="app.id" :value="app.id">{{ app.name }}</option>
           </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Mulai QA</label>
+          <input
+            v-model="filters.start_date"
+            :max="filters.end_date || undefined"
+            type="date"
+            @change="fetchRetests"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Selesai QA</label>
+          <input
+            v-model="filters.end_date"
+            :min="filters.start_date || undefined"
+            type="date"
+            @change="fetchRetests"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
         </div>
         <div class="flex items-end">
           <button
@@ -119,6 +141,10 @@
               <td class="py-3.5 px-4">
                 <div class="font-bold text-slate-900">{{ rt.bug?.title }}</div>
                 <div class="text-[10px] font-mono text-red-600 font-bold">{{ rt.bug?.bug_code }}</div>
+                <div v-if="getRetestSchedule(rt)" class="mt-1 text-[10px] text-slate-500">
+                  <span class="font-mono font-semibold text-indigo-600">{{ getRetestSchedule(rt).schedule_code }}</span>
+                  · {{ formatDateTime(getRetestSchedule(rt).start_time) }} – {{ formatDateTime(getRetestSchedule(rt).end_time) }}
+                </div>
               </td>
               <td class="py-3.5 px-4">
                 <div class="font-medium text-slate-800">{{ rt.bug?.application?.name }}</div>
@@ -140,16 +166,16 @@
               <td class="py-3.5 px-4 text-right">
                 <span v-if="!rt.evidences || rt.evidences.length === 0" class="text-slate-400 italic text-[11px]">Tidak ada</span>
                 <div v-else class="flex justify-end space-x-1">
-                  <a
+                  <button
                     v-for="ev in rt.evidences"
                     :key="ev.id"
-                    :href="`/api/files/retest/${ev.id}/download`"
-                    target="_blank"
+                    type="button"
+                    @click="downloadRetestEvidence(ev)"
                     class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold text-[10px]"
                     title="Unduh Evidence"
                   >
                     📎 Bukti
-                  </a>
+                  </button>
                 </div>
               </td>
             </tr>
@@ -261,6 +287,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import api from '../api';
 import { useAuth } from '../auth';
+import { downloadAuthenticatedFile } from '../utils/files';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
 import EmptyState from '../components/EmptyState.vue';
@@ -268,6 +295,14 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
 const { hasFeatureAccess } = useAuth();
+
+const downloadRetestEvidence = async (evidence) => {
+  try {
+    await downloadAuthenticatedFile('retest', evidence.id, evidence.original_name);
+  } catch (error) {
+    alert(error.response?.data?.message || 'Gagal mengunduh bukti retest.');
+  }
+};
 const loading = ref(false);
 const saving = ref(false);
 const retests = ref([]);
@@ -277,6 +312,8 @@ const apps = ref([]);
 const filters = reactive({
   status: '',
   application_id: '',
+  start_date: '',
+  end_date: '',
 });
 
 const showRetestModal = ref(false);
@@ -295,6 +332,8 @@ const formatDateTime = (str) => {
   return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
+const getRetestSchedule = (retest) => retest.schedule || retest.bug?.schedule || retest.test_case?.schedules?.[0] || null;
+
 const fetchLookups = async () => {
   try {
     const [appRes, bugRes] = await Promise.all([
@@ -302,7 +341,7 @@ const fetchLookups = async () => {
       api.get('/bugs?per_page=50'),
     ]);
     apps.value = appRes.data;
-    readyBugs.value = bugRes.data.data;
+    readyBugs.value = bugRes.data.data.filter((bug) => bug.can_manage_qa);
   } catch (e) {}
 };
 
@@ -321,6 +360,8 @@ const fetchRetests = async () => {
 const resetFilters = () => {
   filters.status = '';
   filters.application_id = '';
+  filters.start_date = '';
+  filters.end_date = '';
   fetchRetests();
 };
 

@@ -45,4 +45,9 @@ class ApplicationMenu extends Model
     {
         return $this->hasMany(Bug::class, 'menu_id');
     }
+
+    public function schedules()
+    {
+        return $this->hasMany(QaSchedule::class, 'menu_id');
+    }
 }

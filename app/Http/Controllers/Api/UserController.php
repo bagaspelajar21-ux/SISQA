@@ -20,8 +20,8 @@ class UserController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('username', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('username', 'like', "%{$search}%");
             });
         }
 
@@ -37,6 +37,7 @@ class UserController extends Controller
 
         $users->getCollection()->transform(function ($u) {
             $u->permissions = RolePermissionService::getPermissionsForUser($u);
+
             return $u;
         });
 
@@ -46,6 +47,7 @@ class UserController extends Controller
     public function getRolePermissions(): JsonResponse
     {
         $config = RolePermissionService::loadConfig();
+
         return response()->json([
             'definitions' => RolePermissionService::allAvailableDefinitions(),
             'role_user' => $config['role_user'],
@@ -55,15 +57,18 @@ class UserController extends Controller
 
     public function updateRolePermissions(Request $request): JsonResponse
     {
+        $definitions = RolePermissionService::allAvailableDefinitions();
+        $menuKeys = array_column($definitions['menus'], 'key');
+        $featureKeys = array_column($definitions['features'], 'key');
         $validated = $request->validate([
             'menus' => 'present|array',
-            'menus.*' => 'string',
+            'menus.*' => ['string', Rule::in($menuKeys)],
             'features' => 'present|array',
-            'features.*' => 'string',
+            'features.*' => ['string', Rule::in($featureKeys)],
             'user_id' => 'nullable|integer|exists:users,id',
         ]);
 
-        if (!empty($validated['user_id'])) {
+        if (! empty($validated['user_id'])) {
             $saved = RolePermissionService::saveSingleUserPermissions(
                 (int) $validated['user_id'],
                 $validated['menus'],
@@ -76,7 +81,7 @@ class UserController extends Controller
                 $validated['features'],
                 true
             );
-            $targetDesc = "seluruh akun Role User";
+            $targetDesc = 'seluruh akun Role User';
         }
 
         ActivityLog::record(
@@ -97,6 +102,9 @@ class UserController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $definitions = RolePermissionService::allAvailableDefinitions();
+        $menuKeys = array_column($definitions['menus'], 'key');
+        $featureKeys = array_column($definitions['features'], 'key');
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'username' => 'nullable|string|max:100|unique:users,username',
@@ -106,7 +114,9 @@ class UserController extends Controller
             'is_active' => 'boolean',
             'permissions' => 'nullable|array',
             'permissions.menus' => 'nullable|array',
+            'permissions.menus.*' => ['string', Rule::in($menuKeys)],
             'permissions.features' => 'nullable|array',
+            'permissions.features.*' => ['string', Rule::in($featureKeys)],
         ]);
 
         $customPerms = $validated['permissions'] ?? null;
@@ -154,6 +164,7 @@ class UserController extends Controller
     {
         $user->loadCount(['schedules', 'testExecutions', 'reportedBugs', 'assignedBugs']);
         $user->permissions = RolePermissionService::getPermissionsForUser($user);
+
         return response()->json([
             'user' => $user,
         ]);
@@ -161,6 +172,9 @@ class UserController extends Controller
 
     public function update(Request $request, User $user): JsonResponse
     {
+        $definitions = RolePermissionService::allAvailableDefinitions();
+        $menuKeys = array_column($definitions['menus'], 'key');
+        $featureKeys = array_column($definitions['features'], 'key');
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'username' => ['nullable', 'string', 'max:100', Rule::unique('users')->ignore($user->id)],
@@ -170,7 +184,9 @@ class UserController extends Controller
             'is_active' => 'boolean',
             'permissions' => 'nullable|array',
             'permissions.menus' => 'nullable|array',
+            'permissions.menus.*' => ['string', Rule::in($menuKeys)],
             'permissions.features' => 'nullable|array',
+            'permissions.features.*' => ['string', Rule::in($featureKeys)],
         ]);
 
         $customPerms = $validated['permissions'] ?? null;
@@ -184,7 +200,7 @@ class UserController extends Controller
             'is_active' => $user->is_active,
         ];
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
             unset($validated['password']);
@@ -234,7 +250,7 @@ class UserController extends Controller
         }
 
         $oldState = $user->is_active;
-        $user->update(['is_active' => !$oldState]);
+        $user->update(['is_active' => ! $oldState]);
         $statusLabel = $user->is_active ? 'mengaktifkan' : 'menonaktifkan';
 
         ActivityLog::record(
@@ -248,7 +264,7 @@ class UserController extends Controller
         );
 
         return response()->json([
-            'message' => "Akun pengguna berhasil di" . ($user->is_active ? 'aktifkan' : 'nonaktifkan') . ".",
+            'message' => 'Akun pengguna berhasil di'.($user->is_active ? 'aktifkan' : 'nonaktifkan').'.',
             'user' => $user,
         ]);
     }

@@ -9,6 +9,8 @@ class BugEvidence extends Model
 {
     use HasFactory;
 
+    protected $table = 'bug_evidences';
+
     protected $fillable = [
         'bug_id',
         'evidence_type', // initial, fix, retest

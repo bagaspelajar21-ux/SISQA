@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -30,8 +32,27 @@ class QaSchedule extends Model
     protected $casts = [
         'start_time' => 'datetime',
         'end_time' => 'datetime',
+        'start_notification_sent_at' => 'datetime',
+        'end_notification_sent_at' => 'datetime',
         'target_test_cases_count' => 'integer',
     ];
+
+    public function hasPassedEndTime(): bool
+    {
+        return $this->end_time !== null && now()->greaterThan($this->end_time);
+    }
+
+    #[Scope]
+    protected function overlappingDateRange(Builder $query, ?string $startDate, ?string $endDate): void
+    {
+        if ($startDate) {
+            $query->whereDate('end_time', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->whereDate('start_time', '<=', $endDate);
+        }
+    }
 
     public function application()
     {

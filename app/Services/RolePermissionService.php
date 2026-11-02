@@ -24,9 +24,11 @@ class RolePermissionService
                 '/guides',
                 '/reports',
                 '/reports/wa',
+                '/reports/weekly',
                 '/activity-logs',
             ],
             'features' => [
+                'create_schedule',
                 'execute_test',
                 'create_test',
                 'import_test_excel',
@@ -53,15 +55,14 @@ class RolePermissionService
                 ['key' => '/guides', 'label' => '📖 Panduan SISQA', 'description' => 'Pusat panduan penggunaan aplikasi'],
                 ['key' => '/reports', 'label' => '📑 QA Report', 'description' => 'Laporan resmi QA (Excel & PDF)'],
                 ['key' => '/reports/wa', 'label' => '💬 Report WA', 'description' => 'Generator laporan harian versi WhatsApp'],
+                ['key' => '/reports/weekly', 'label' => '📆 Report Mingguan', 'description' => 'Catatan pekerjaan pribadi per hari selama satu minggu, dapat diedit dan dihapus'],
                 ['key' => '/activity-logs', 'label' => '⏱️ Activity Logs', 'description' => 'Riwayat aktivitas pengguna'],
-                ['key' => '/master/apps', 'label' => '🏢 Master Aplikasi', 'description' => 'Akses menu Master Data Aplikasi'],
-                ['key' => '/master/modules', 'label' => '🗂️ Master Modul (Menu Utama)', 'description' => 'Akses menu Master Modul & Sub-Menu'],
-                ['key' => '/master/menus', 'label' => '📌 Master Sub-Menu / Fitur', 'description' => 'Akses menu Master Sub-Menu'],
             ],
             'features' => [
                 ['key' => 'dashboard_all_data', 'label' => '🌐 Dashboard: Akses Data Seluruh Tester', 'description' => 'Melihat statistik semua tester & filter lintas tester di Dashboard (Default User: Hanya data sendiri)'],
                 ['key' => 'dashboard_exec_charts', 'label' => '📈 Dashboard: Grafik Eksekutif & Analitik Bug', 'description' => 'Menampilkan grafik kurva severity bug, siklus resolusi, dan cakupan lintas aplikasi di Dashboard'],
                 ['key' => 'dashboard_quick_actions', 'label' => '⚡ Dashboard: Pintasan Cepat & Filter Lanjutan', 'description' => 'Menampilkan tombol pintasan cepat dan filter sub-menu/periode lengkap di Dashboard'],
+                ['key' => 'create_schedule', 'label' => '+ Tambah & Kelola Jadwal QA', 'description' => 'Membuat, mengubah, dan menghapus jadwal pengujian QA'],
                 ['key' => 'execute_test', 'label' => '▶ Eksekusi Test Case', 'description' => 'Menjalankan pengujian (PASS/FAILED/PENDING) & unggah bukti'],
                 ['key' => 'create_test', 'label' => '+ Tambah & Edit Test Case', 'description' => 'Membuat, mengubah, dan menghapus skenario Test Case'],
                 ['key' => 'import_test_excel', 'label' => '📤 Template & Upload Excel Test Case', 'description' => 'Mengunduh template dan mengimpor Test Case dari Excel'],
@@ -82,8 +83,12 @@ class RolePermissionService
             $decoded = json_decode(file_get_contents($path), true);
             if (is_array($decoded)) {
                 return [
-                    'role_user' => $decoded['role_user'] ?? self::defaultUserPermissions(),
-                    'user_overrides' => $decoded['user_overrides'] ?? [],
+                    'role_user' => is_array($decoded['role_user'] ?? null)
+                        ? $decoded['role_user']
+                        : self::defaultUserPermissions(),
+                    'user_overrides' => is_array($decoded['user_overrides'] ?? null)
+                        ? $decoded['user_overrides']
+                        : [],
                 ];
             }
         }
@@ -97,38 +102,41 @@ class RolePermissionService
     public static function saveRoleUserPermissions(array $menus, array $features, bool $resetOverrides = true): array
     {
         $config = self::loadConfig();
-        $config['role_user'] = [
+        $config['role_user'] = self::normalizePermissions([
             'menus' => array_values(array_unique($menus)),
             'features' => array_values(array_unique($features)),
-        ];
+        ]);
         if ($resetOverrides) {
             $config['user_overrides'] = [];
         }
 
         file_put_contents(self::getConfigPath(), json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
         return $config['role_user'];
     }
 
     public static function saveSingleUserPermissions(int $userId, array $menus, array $features): array
     {
         $config = self::loadConfig();
-        $config['user_overrides'][(string) $userId] = [
+        $config['user_overrides'][(string) $userId] = self::normalizePermissions([
             'menus' => array_values(array_unique($menus)),
             'features' => array_values(array_unique($features)),
-        ];
+        ]);
 
         file_put_contents(self::getConfigPath(), json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
         return $config['user_overrides'][(string) $userId];
     }
 
     public static function getPermissionsForUser(?User $user): array
     {
-        if (!$user) {
+        if (! $user) {
             return ['menus' => [], 'features' => []];
         }
 
         if ($user->role === 'admin') {
             $defs = self::allAvailableDefinitions();
+
             return [
                 'menus' => array_column($defs['menus'], 'key'),
                 'features' => array_column($defs['features'], 'key'),
@@ -137,10 +145,60 @@ class RolePermissionService
 
         $config = self::loadConfig();
         $uid = (string) $user->id;
-        if (isset($config['user_overrides'][$uid])) {
-            return $config['user_overrides'][$uid];
+        if (is_array($config['user_overrides'][$uid] ?? null)) {
+            return self::normalizePermissions($config['user_overrides'][$uid]);
         }
 
-        return $config['role_user'] ?? self::defaultUserPermissions();
+        return self::normalizePermissions($config['role_user'] ?? self::defaultUserPermissions());
+    }
+
+    public static function hasMenuAccess(?User $user, string $menuPath): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->role === 'admin' || $menuPath === '/profile') {
+            return true;
+        }
+
+        return in_array($menuPath, self::getPermissionsForUser($user)['menus'], true);
+    }
+
+    public static function hasFeatureAccess(?User $user, string $featureKey): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->role === 'admin') {
+            return true;
+        }
+
+        return in_array($featureKey, self::getPermissionsForUser($user)['features'], true);
+    }
+
+    /**
+     * @param  array<string, mixed>  $permissions
+     * @return array{menus: list<string>, features: list<string>}
+     */
+    private static function normalizePermissions(array $permissions): array
+    {
+        $definitions = self::allAvailableDefinitions();
+        $menuKeys = array_column($definitions['menus'], 'key');
+        $featureKeys = array_column($definitions['features'], 'key');
+        $menus = is_array($permissions['menus'] ?? null) ? $permissions['menus'] : [];
+        $features = is_array($permissions['features'] ?? null) ? $permissions['features'] : [];
+
+        return [
+            'menus' => array_values(array_filter(
+                $menus,
+                fn (mixed $menu): bool => is_string($menu) && in_array($menu, $menuKeys, true)
+            )),
+            'features' => array_values(array_filter(
+                $features,
+                fn (mixed $feature): bool => is_string($feature) && in_array($feature, $featureKeys, true)
+            )),
+        ];
     }
 }

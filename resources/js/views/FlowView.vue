@@ -495,30 +495,38 @@
                 </button>
               </template>
 
-              <a
-                :href="`/api/files/flow/${selectedPreviewFile.id}/preview`"
-                target="_blank"
+              <button
+                type="button"
+                :disabled="!previewFileUrl"
+                @click="openSelectedPreview"
                 class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-colors"
               >
                 ↗ Buka Tab Penuh
-              </a>
-              <a
-                :href="`/api/files/flow/${selectedPreviewFile.id}/download`"
-                target="_blank"
+              </button>
+              <button
+                type="button"
+                @click="downloadSelectedPreview"
                 class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold transition-colors"
               >
                 ⬇️ Unduh File
-              </a>
+              </button>
             </div>
+          </div>
+
+          <div v-if="loadingPreviewFile" class="p-8 bg-white">
+            <LoadingSpinner text="Memuat pratinjau berkas..." />
+          </div>
+          <div v-else-if="previewFileError" role="alert" class="p-6 bg-rose-50 text-sm text-rose-700">
+            {{ previewFileError }}
           </div>
 
           <!-- 1. IMAGE PREVIEW (JPG, PNG, WEBP, GIF, SVG) -->
           <div
-            v-if="isImageFile(selectedPreviewFile)"
+            v-else-if="isImageFile(selectedPreviewFile)"
             class="p-6 bg-slate-100/80 flex items-center justify-center overflow-auto max-h-[650px]"
           >
             <img
-              :src="`/api/files/flow/${selectedPreviewFile.id}/preview`"
+              :src="previewFileUrl"
               :alt="selectedPreviewFile.original_name"
               :style="{ width: `${imageZoom}%`, maxWidth: imageZoom === 100 ? '100%' : 'none' }"
               class="rounded-xl shadow-md border border-slate-200 bg-white transition-all duration-150"
@@ -528,7 +536,7 @@
           <!-- 2. PDF PREVIEW -->
           <div v-else-if="isPdfFile(selectedPreviewFile)" class="bg-slate-800">
             <iframe
-              :src="`/api/files/flow/${selectedPreviewFile.id}/preview`"
+              :src="previewFileUrl"
               class="w-full h-[650px] border-0"
               title="PDF In-System Preview"
             ></iframe>
@@ -537,7 +545,7 @@
           <!-- 3. VIDEO PREVIEW (MP4, WEBM) -->
           <div v-else-if="isVideoFile(selectedPreviewFile)" class="p-6 bg-slate-950 flex justify-center">
             <video
-              :src="`/api/files/flow/${selectedPreviewFile.id}/preview`"
+              :src="previewFileUrl"
               controls
               class="max-h-[560px] rounded-xl shadow-lg"
             ></video>
@@ -696,13 +704,13 @@
                  {{ extractedPreview?.message || 'Berkas ini siap dibuka atau diunduh ke perangkat Anda.' }}
               </p>
               <div class="pt-2">
-                <a
-                  :href="`/api/files/flow/${selectedPreviewFile.id}/download`"
-                  target="_blank"
+                <button
+                  type="button"
+                  @click="downloadSelectedPreview"
                   class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold"
                 >
                   ⬇️ Unduh Berkas ({{ selectedPreviewFile.original_name }})
-                </a>
+                </button>
               </div>
             </div>
           </div>
@@ -721,9 +729,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '../api';
 import { useAuth } from '../auth';
+import { createAuthenticatedFileUrl, downloadAuthenticatedFile } from '../utils/files';
 import Badge from '../components/Badge.vue';
 import Modal from '../components/Modal.vue';
 import EmptyState from '../components/EmptyState.vue';
@@ -748,11 +757,15 @@ const filters = reactive({
 const showDiagramModal = ref(false);
 const activeFlow = ref(null);
 const selectedPreviewFile = ref(null);
+const previewFileUrl = ref('');
+const loadingPreviewFile = ref(false);
+const previewFileError = ref('');
 const imageZoom = ref(100);
 const loadingPreviewContent = ref(false);
 const extractedPreview = ref(null);
 const activeSlideIndex = ref(0);
 const activeSheetIndex = ref(0);
+let previewRequestId = 0;
 
 const showFormModal = ref(false);
 const showManualSteps = ref(false);
@@ -1016,10 +1029,7 @@ const deleteFileFromModal = async (fileObj) => {
     const res = await api.get(`/flows/${activeFlow.value.id}`);
     activeFlow.value = res.data.flow;
     if (selectedPreviewFile.value?.id === fileObj.id) {
-      selectedPreviewFile.value = activeFlow.value.files?.[0] || null;
-      if (selectedPreviewFile.value) {
-        selectFileForPreview(selectedPreviewFile.value);
-      }
+      await selectFileForPreview(activeFlow.value.files?.[0] || null);
     }
     fetchFlows();
   } catch (e) {
@@ -1056,14 +1066,44 @@ const confirmDelete = async (f) => {
 };
 
 const selectFileForPreview = async (fileObj) => {
+  const fileRequestId = ++previewRequestId;
+
+  loadingPreviewFile.value = false;
+  if (previewFileUrl.value) {
+    URL.revokeObjectURL(previewFileUrl.value);
+    previewFileUrl.value = '';
+  }
+
   selectedPreviewFile.value = fileObj;
   imageZoom.value = 100;
   extractedPreview.value = null;
+  previewFileError.value = '';
   activeSlideIndex.value = 0;
   activeSheetIndex.value = 0;
 
   if (!fileObj) return;
   if (isImageFile(fileObj) || isPdfFile(fileObj) || isVideoFile(fileObj)) {
+    loadingPreviewFile.value = true;
+
+    try {
+      const fileUrl = await createAuthenticatedFileUrl('flow', fileObj.id);
+
+      if (fileRequestId !== previewRequestId) {
+        URL.revokeObjectURL(fileUrl);
+        return;
+      }
+
+      previewFileUrl.value = fileUrl;
+    } catch (error) {
+      if (fileRequestId === previewRequestId) {
+        previewFileError.value = error.response?.data?.message || 'Pratinjau berkas gagal dimuat.';
+      }
+    } finally {
+      if (fileRequestId === previewRequestId) {
+        loadingPreviewFile.value = false;
+      }
+    }
+
     return;
   }
 
@@ -1090,9 +1130,25 @@ const openPreviewModal = async (f, targetFile = null) => {
     if (initialFile) {
       await selectFileForPreview(initialFile);
     } else {
-      selectedPreviewFile.value = null;
+      await selectFileForPreview(null);
     }
   } catch (e) {}
+};
+
+const openSelectedPreview = () => {
+  if (previewFileUrl.value) {
+    window.open(previewFileUrl.value, '_blank', 'noopener,noreferrer');
+  }
+};
+
+const downloadSelectedPreview = async () => {
+  if (!selectedPreviewFile.value) return;
+
+  try {
+    await downloadAuthenticatedFile('flow', selectedPreviewFile.value.id, selectedPreviewFile.value.original_name);
+  } catch (error) {
+    alert(error.response?.data?.message || 'Gagal mengunduh berkas flow.');
+  }
 };
 
 const handleStepClick = (step) => {
@@ -1125,5 +1181,18 @@ const uploadFlowDoc = async (e) => {
 onMounted(() => {
   fetchLookups();
   fetchFlows();
+});
+
+watch(showDiagramModal, (isOpen) => {
+  if (!isOpen) {
+    selectFileForPreview(null);
+  }
+});
+
+onUnmounted(() => {
+  previewRequestId++;
+  if (previewFileUrl.value) {
+    URL.revokeObjectURL(previewFileUrl.value);
+  }
 });
 </script>

@@ -68,10 +68,7 @@
         <div>
           <label class="block font-bold text-slate-700 mb-1">Nama Aplikasi *</label>
           <input v-model="form.name" required type="text" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
-        </div>
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Kode Unik Aplikasi *</label>
-          <input v-model="form.code" required type="text" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
+          <p class="mt-1 text-[11px] text-slate-500">Kode aplikasi akan dibuat otomatis setelah data disimpan.</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -111,7 +108,6 @@ const currentId = ref(null);
 
 const form = reactive({
   name: '',
-  code: '',
   version: '1.0.0',
   environment: 'Production',
   description: '',
@@ -131,7 +127,6 @@ const fetchApps = async () => {
 const openCreateModal = () => {
   isEdit.value = false;
   form.name = '';
-  form.code = '';
   form.version = '1.0.0';
   form.environment = 'Production';
   form.description = '';
@@ -141,7 +136,11 @@ const openCreateModal = () => {
 const openEditModal = (a) => {
   isEdit.value = true;
   currentId.value = a.id;
-  Object.assign(form, a);
+  form.name = a.name;
+  form.version = a.version;
+  form.environment = a.environment || 'Production';
+  form.description = a.description || '';
+  form.is_active = a.is_active;
   showModal.value = true;
 };
 

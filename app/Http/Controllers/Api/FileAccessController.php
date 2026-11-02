@@ -8,6 +8,8 @@ use App\Models\BugEvidence;
 use App\Models\RetestEvidence;
 use App\Models\TestExecutionEvidence;
 use App\Models\UsageGuideFile;
+use App\Services\QaScheduleLockService;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -32,9 +34,9 @@ class FileAccessController extends Controller
     {
         $candidates = [
             Storage::disk('local')->path($fileRecord->file_path),
-            storage_path('app/' . $fileRecord->file_path),
-            storage_path('app/private/' . $fileRecord->file_path),
-            storage_path('app/public/' . $fileRecord->file_path),
+            storage_path('app/'.$fileRecord->file_path),
+            storage_path('app/private/'.$fileRecord->file_path),
+            storage_path('app/public/'.$fileRecord->file_path),
         ];
 
         foreach ($candidates as $path) {
@@ -46,17 +48,57 @@ class FileAccessController extends Controller
         abort(404, 'Berkas fisik tidak ditemukan pada server.');
     }
 
-    public function download(Request $request, string $type, int $id)
+    private function ensureQaFileIsUnlocked(
+        Request $request,
+        string $type,
+        Model $fileRecord,
+        QaScheduleLockService $scheduleLock,
+    ): void {
+        if ($request->user()->isAdmin()) {
+            return;
+        }
+
+        $lockedSchedule = match ($type) {
+            'bug' => $fileRecord->bug
+                ? $scheduleLock->expiredScheduleForBug($fileRecord->bug)
+                : null,
+            'execution' => $fileRecord->execution
+                ? $scheduleLock->expiredScheduleForContext(
+                    $fileRecord->execution->qa_schedule_id,
+                    $fileRecord->execution->test_case_id,
+                )
+                : null,
+            'retest' => $fileRecord->retest
+                ? ($scheduleLock->expiredScheduleForContext(
+                    $fileRecord->retest->qa_schedule_id,
+                    $fileRecord->retest->test_case_id,
+                    $fileRecord->retest->module_id,
+                    $fileRecord->retest->menu_id,
+                ) ?? ($fileRecord->retest->bug
+                    ? $scheduleLock->expiredScheduleForBug($fileRecord->retest->bug)
+                    : null))
+                : null,
+            default => null,
+        };
+
+        if ($lockedSchedule !== null) {
+            abort(403, "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.");
+        }
+    }
+
+    public function download(Request $request, string $type, int $id, QaScheduleLockService $scheduleLock)
     {
         $fileRecord = $this->getFileRecord($type, $id);
+        $this->ensureQaFileIsUnlocked($request, $type, $fileRecord, $scheduleLock);
         $path = $this->resolvePhysicalPath($fileRecord);
 
         return response()->download($path, $fileRecord->original_name);
     }
 
-    public function preview(Request $request, string $type, int $id)
+    public function preview(Request $request, string $type, int $id, QaScheduleLockService $scheduleLock)
     {
         $fileRecord = $this->getFileRecord($type, $id);
+        $this->ensureQaFileIsUnlocked($request, $type, $fileRecord, $scheduleLock);
         $path = $this->resolvePhysicalPath($fileRecord);
 
         $ext = strtolower($fileRecord->file_type ?: pathinfo($fileRecord->original_name, PATHINFO_EXTENSION));
@@ -76,16 +118,21 @@ class FileAccessController extends Controller
 
         return response()->file($path, [
             'Content-Type' => $mime,
-            'Content-Disposition' => 'inline; filename="' . $fileRecord->original_name . '"',
+            'Content-Disposition' => 'inline; filename="'.$fileRecord->original_name.'"',
         ]);
     }
 
     /**
      * Extract structured content for in-system preview of PPTX, DOCX, XLSX, CSV, TXT, JSON, etc.
      */
-    public function contentPreview(Request $request, string $type, int $id): JsonResponse
-    {
+    public function contentPreview(
+        Request $request,
+        string $type,
+        int $id,
+        QaScheduleLockService $scheduleLock,
+    ): JsonResponse {
         $fileRecord = $this->getFileRecord($type, $id);
+        $this->ensureQaFileIsUnlocked($request, $type, $fileRecord, $scheduleLock);
         $path = $this->resolvePhysicalPath($fileRecord);
         $ext = strtolower($fileRecord->file_type ?: pathinfo($fileRecord->original_name, PATHINFO_EXTENSION));
 
@@ -104,6 +151,7 @@ class FileAccessController extends Controller
 
             if (in_array($ext, ['txt', 'json', 'xml', 'drawio', 'md', 'log'])) {
                 $content = file_get_contents($path);
+
                 return response()->json([
                     'preview_type' => 'text',
                     'original_name' => $fileRecord->original_name,
@@ -122,14 +170,14 @@ class FileAccessController extends Controller
                 'preview_type' => 'error',
                 'original_name' => $fileRecord->original_name,
                 'file_type' => $ext,
-                'message' => 'Tidak dapat mengekstrak pratinjau internal: ' . $e->getMessage(),
+                'message' => 'Tidak dapat mengekstrak pratinjau internal: '.$e->getMessage(),
             ]);
         }
     }
 
     private function extractPptxSlides(string $path, $fileRecord): array
     {
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         if ($zip->open($path) !== true) {
             throw new \RuntimeException('Gagal membuka arsip presentasi PPTX.');
         }
@@ -150,7 +198,7 @@ class FileAccessController extends Controller
             $paragraphs = [];
 
             if ($xmlContent) {
-                $dom = new \DOMDocument();
+                $dom = new \DOMDocument;
                 @$dom->loadXML($xmlContent);
                 $xpath = new \DOMXPath($dom);
                 $xpath->registerNamespace('a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
@@ -173,7 +221,7 @@ class FileAccessController extends Controller
             $relsXml = $zip->getFromName($relsPath);
             $images = [];
             if ($relsXml) {
-                $relsDom = new \DOMDocument();
+                $relsDom = new \DOMDocument;
                 @$relsDom->loadXML($relsXml);
                 foreach ($relsDom->getElementsByTagName('Relationship') as $rel) {
                     $target = $rel->getAttribute('Target');
@@ -181,8 +229,8 @@ class FileAccessController extends Controller
                     if (str_contains($typeAttr, '/image') && $target) {
                         // Resolve '../media/image1.png' -> 'ppt/media/image1.png'
                         $mediaPath = str_starts_with($target, '../')
-                            ? 'ppt/' . substr($target, 3)
-                            : 'ppt/slides/' . ltrim($target, '/');
+                            ? 'ppt/'.substr($target, 3)
+                            : 'ppt/slides/'.ltrim($target, '/');
                         $imgBytes = $zip->getFromName($mediaPath);
                         if ($imgBytes !== false && strlen($imgBytes) < 5 * 1024 * 1024) {
                             $imgExt = strtolower(pathinfo($mediaPath, PATHINFO_EXTENSION));
@@ -193,7 +241,7 @@ class FileAccessController extends Controller
                                 'webp' => 'image/webp',
                                 default => 'image/png',
                             };
-                            $images[] = 'data:' . $imgMime . ';base64,' . base64_encode($imgBytes);
+                            $images[] = 'data:'.$imgMime.';base64,'.base64_encode($imgBytes);
                         }
                     }
                 }
@@ -230,7 +278,7 @@ class FileAccessController extends Controller
             $rows = $worksheet->toArray(null, true, true, false);
             // Limit to first 150 rows and 20 cols for fast UI preview
             $trimmedRows = array_slice($rows, 0, 150);
-            $trimmedRows = array_map(fn($r) => array_slice($r, 0, 20), $trimmedRows);
+            $trimmedRows = array_map(fn ($r) => array_slice($r, 0, 20), $trimmedRows);
 
             // Filter out completely empty trailing rows
             $filtered = array_values(array_filter($trimmedRows, function ($row) {
@@ -239,6 +287,7 @@ class FileAccessController extends Controller
                         return true;
                     }
                 }
+
                 return false;
             }));
 
@@ -258,7 +307,7 @@ class FileAccessController extends Controller
 
     private function extractDocx(string $path, $fileRecord): array
     {
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         if ($zip->open($path) !== true) {
             throw new \RuntimeException('Gagal membuka dokumen DOCX.');
         }
@@ -266,7 +315,7 @@ class FileAccessController extends Controller
         $xmlContent = $zip->getFromName('word/document.xml');
         $paragraphs = [];
         if ($xmlContent) {
-            $dom = new \DOMDocument();
+            $dom = new \DOMDocument;
             @$dom->loadXML($xmlContent);
             $xpath = new \DOMXPath($dom);
             $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
@@ -292,7 +341,7 @@ class FileAccessController extends Controller
                 if ($imgBytes !== false && strlen($imgBytes) < 5 * 1024 * 1024) {
                     $imgExt = strtolower(pathinfo($name, PATHINFO_EXTENSION));
                     $imgMime = $imgExt === 'jpg' || $imgExt === 'jpeg' ? 'image/jpeg' : "image/{$imgExt}";
-                    $images[] = 'data:' . $imgMime . ';base64,' . base64_encode($imgBytes);
+                    $images[] = 'data:'.$imgMime.';base64,'.base64_encode($imgBytes);
                 }
             }
         }

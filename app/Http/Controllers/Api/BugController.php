@@ -10,9 +10,10 @@ use App\Models\ApplicationModule;
 use App\Models\Bug;
 use App\Models\BugEvidence;
 use App\Models\BugHistory;
+use App\Models\QaSchedule;
+use App\Services\QaScheduleLockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -22,9 +23,26 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class BugController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
-        $query = Bug::with(['application', 'module', 'menu', 'reporter', 'assignee', 'testCase']);
+        $dateRange = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $startDate = $dateRange['start_date'] ?? null;
+        $endDate = $dateRange['end_date'] ?? null;
+
+        $query = Bug::with([
+            'application',
+            'module.schedules',
+            'menu.schedules',
+            'reporter',
+            'assignee',
+            'testCase.schedules' => fn ($scheduleQuery) => $scheduleQuery->orderByDesc('start_time'),
+            'testCase.module.schedules',
+            'testCase.menu.schedules',
+            'schedule',
+        ]);
 
         if ($appId = $request->input('application_id')) {
             $query->where('application_id', $appId);
@@ -61,25 +79,42 @@ class BugController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('bug_code', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%");
+                    ->orWhere('bug_code', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%");
             });
         }
 
-        if ($startDate = $request->input('start_date')) {
-            $query->whereDate('report_date', '>=', $startDate);
+        if ($startDate || $endDate) {
+            $query->inQaDateRange($startDate, $endDate);
         }
 
-        if ($endDate = $request->input('end_date')) {
-            $query->whereDate('report_date', '<=', $endDate);
+        if (! $request->user()->isAdmin()) {
+            $scheduleLock->excludeLockedBugs($query);
         }
 
         $bugs = $query->orderBy('id', 'desc')->paginate($request->input('per_page', 15));
 
+        $isAdmin = $request->user()->isAdmin();
+        $bugs->getCollection()->transform(function (Bug $bug) use ($isAdmin, $scheduleLock): Bug {
+            $schedules = collect([$bug->schedule])
+                ->filter()
+                ->concat($bug->module?->schedules ?? collect())
+                ->concat($bug->menu?->schedules ?? collect())
+                ->concat($bug->testCase?->schedules ?? collect())
+                ->concat($bug->testCase?->module?->schedules ?? collect())
+                ->concat($bug->testCase?->menu?->schedules ?? collect());
+            $lockedSchedule = $scheduleLock->expiredScheduleFromSchedules($schedules);
+            $bug->is_schedule_expired = $lockedSchedule !== null;
+            $bug->expired_schedule_code = $lockedSchedule?->schedule_code;
+            $bug->can_manage_qa = $isAdmin || $lockedSchedule === null;
+
+            return $bug;
+        });
+
         return response()->json($bugs);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $user = $request->user();
 
@@ -105,10 +140,25 @@ class BugController extends Controller
             'evidences.*' => 'file|max:51200|mimes:png,jpg,jpeg,webp,pdf,mp4',
         ]);
 
+        $lockedSchedule = $user->isAdmin()
+            ? null
+            : $scheduleLock->expiredScheduleForContext(
+                isset($validated['qa_schedule_id']) ? (int) $validated['qa_schedule_id'] : null,
+                isset($validated['test_case_id']) ? (int) $validated['test_case_id'] : null,
+                isset($validated['module_id']) ? (int) $validated['module_id'] : null,
+                isset($validated['menu_id']) ? (int) $validated['menu_id'] : null,
+            );
+
+        if ($lockedSchedule !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         // Auto-generate bug code
         $yearMonth = date('Ym');
         $count = Bug::where('bug_code', 'like', "BUG-{$yearMonth}-%")->count();
-        $validated['bug_code'] = sprintf("BUG-%s-%03d", $yearMonth, $count + 1);
+        $validated['bug_code'] = sprintf('BUG-%s-%03d', $yearMonth, $count + 1);
         $validated['reporter_id'] = $user->id;
         $validated['report_date'] = now()->toDateString();
         $validated['status'] = $validated['status'] ?? ($validated['assignee_id'] ? 'Assigned' : 'Open');
@@ -168,8 +218,15 @@ class BugController extends Controller
         ], 201);
     }
 
-    public function show(Bug $bug): JsonResponse
+    public function show(Request $request, Bug $bug, QaScheduleLockService $scheduleLock): JsonResponse
     {
+        if (! $request->user()->isAdmin()
+            && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         return response()->json([
             'bug' => $bug->load([
                 'application',
@@ -190,7 +247,7 @@ class BugController extends Controller
         ]);
     }
 
-    public function update(Request $request, Bug $bug): JsonResponse
+    public function update(Request $request, Bug $bug, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $user = $request->user();
 
@@ -215,6 +272,22 @@ class BugController extends Controller
             'duplicate_of_id' => 'nullable|exists:bugs,id',
             'history_note' => 'nullable|string',
         ]);
+
+        $lockedSchedule = $user->isAdmin()
+            ? null
+            : ($scheduleLock->expiredScheduleForBug($bug)
+                ?? $scheduleLock->expiredScheduleForContext(
+                    isset($validated['qa_schedule_id']) ? (int) $validated['qa_schedule_id'] : null,
+                    isset($validated['test_case_id']) ? (int) $validated['test_case_id'] : null,
+                    isset($validated['module_id']) ? (int) $validated['module_id'] : null,
+                    isset($validated['menu_id']) ? (int) $validated['menu_id'] : null,
+                ));
+
+        if ($lockedSchedule !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
 
         $historyNote = $validated['history_note'] ?? 'Perubahan informasi tiket bug.';
         unset($validated['history_note']);
@@ -243,8 +316,8 @@ class BugController extends Controller
                 'bug_id' => $bug->id,
                 'user_id' => $user->id,
                 'field_changed' => 'assignee_id',
-                'old_value' => (string)$oldAssignee,
-                'new_value' => (string)$bug->assignee_id,
+                'old_value' => (string) $oldAssignee,
+                'new_value' => (string) $bug->assignee_id,
                 'notes' => 'Penggantian developer/penanggung jawab.',
             ]);
         }
@@ -267,7 +340,7 @@ class BugController extends Controller
         ]);
     }
 
-    public function uploadEvidence(Request $request, Bug $bug): JsonResponse
+    public function uploadEvidence(Request $request, Bug $bug, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $user = $request->user();
 
@@ -277,6 +350,12 @@ class BugController extends Controller
             'files' => 'required|array',
             'files.*' => 'file|max:51200|mimes:png,jpg,jpeg,webp,pdf,mp4',
         ]);
+
+        if (! $user->isAdmin() && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
 
         $uploaded = [];
         foreach ($request->file('files') as $file) {
@@ -298,7 +377,7 @@ class BugController extends Controller
         ActivityLog::record(
             'bug_evidence_uploaded',
             'Bug Tracking',
-            "Pengguna {$user->name} mengunggah " . count($uploaded) . " berkas evidence ({$request->evidence_type}) pada tiket {$bug->bug_code}",
+            "Pengguna {$user->name} mengunggah ".count($uploaded)." berkas evidence ({$request->evidence_type}) pada tiket {$bug->bug_code}",
             'Bug',
             $bug->id,
             null,
@@ -313,8 +392,14 @@ class BugController extends Controller
         ]);
     }
 
-    public function destroy(Bug $bug): JsonResponse
+    public function destroy(Request $request, Bug $bug, QaScheduleLockService $scheduleLock): JsonResponse
     {
+        if (! $request->user()->isAdmin() && ($lockedSchedule = $scheduleLock->expiredScheduleForBug($bug)) !== null) {
+            return response()->json([
+                'message' => "Modul/menu terkunci karena jadwal QA ({$lockedSchedule->schedule_code}) telah berakhir.",
+            ], 403);
+        }
+
         $code = $bug->bug_code;
         $bug->delete();
 
@@ -335,7 +420,7 @@ class BugController extends Controller
 
     public function downloadTemplate(): StreamedResponse
     {
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Template Bug Tracking');
 
@@ -354,9 +439,9 @@ class BugController extends Controller
         ];
 
         foreach ($headers as $col => $text) {
-            $sheet->setCellValue($col . '1', $text);
-            $sheet->getStyle($col . '1')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
-            $sheet->getStyle($col . '1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E11D48');
+            $sheet->setCellValue($col.'1', $text);
+            $sheet->getStyle($col.'1')->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+            $sheet->getStyle($col.'1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E11D48');
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
@@ -406,7 +491,7 @@ class BugController extends Controller
         );
     }
 
-    public function importExcel(Request $request): JsonResponse
+    public function importExcel(Request $request, QaScheduleLockService $scheduleLock): JsonResponse
     {
         $user = $request->user();
 
@@ -420,7 +505,16 @@ class BugController extends Controller
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray(null, true, true, true);
 
-        $defaultAppId = $request->input('application_id') ?: Application::first()?->id;
+        $defaultAppId = $request->input('application_id')
+            ? (int) $request->input('application_id')
+            : Application::first()?->id;
+        if (! $user->isAdmin()
+            && ($lockedSchedule = $this->expiredScheduleForImportRows($rows, $defaultAppId, $scheduleLock)) !== null) {
+            return response()->json([
+                'message' => "Impor dibatalkan karena modul/menu terkunci oleh jadwal QA ({$lockedSchedule->schedule_code}) yang telah berakhir.",
+            ], 403);
+        }
+
         $importedCount = 0;
         $yearMonth = date('Ym');
 
@@ -455,7 +549,7 @@ class BugController extends Controller
                     $appId = $foundApp->id;
                 }
             }
-            if (!$appId) {
+            if (! $appId) {
                 continue;
             }
 
@@ -465,15 +559,15 @@ class BugController extends Controller
                 $foundMod = ApplicationModule::where('application_id', $appId)
                     ->where(function ($q) use ($modName) {
                         $q->where('name', 'like', $modName)
-                          ->orWhere('code', 'like', $modName);
+                            ->orWhere('code', 'like', $modName);
                     })->first();
 
-                if (!$foundMod) {
+                if (! $foundMod) {
                     $codePrefix = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $modName), 0, 5) ?: 'MOD');
                     $foundMod = ApplicationModule::create([
                         'application_id' => $appId,
                         'name' => $modName,
-                        'code' => $codePrefix . '-' . rand(10, 99),
+                        'code' => $codePrefix.'-'.rand(10, 99),
                         'description' => 'Diimpor dari Excel',
                     ]);
                 }
@@ -487,13 +581,13 @@ class BugController extends Controller
                     ->where('name', 'like', $menuName)
                     ->first();
 
-                if (!$foundMenu) {
+                if (! $foundMenu) {
                     $codePrefix = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $menuName), 0, 5) ?: 'MNU');
                     $foundMenu = ApplicationMenu::create([
                         'application_id' => $appId,
                         'module_id' => $modId,
                         'name' => $menuName,
-                        'code' => $codePrefix . '-' . rand(10, 99),
+                        'code' => $codePrefix.'-'.rand(10, 99),
                     ]);
                 }
                 $menuId = $foundMenu->id;
@@ -517,10 +611,10 @@ class BugController extends Controller
             $status = $statusMap[strtolower($statusRaw)] ?? 'Open';
 
             $nextSeq = Bug::where('bug_code', 'like', "BUG-{$yearMonth}-%")->count() + 1;
-            $bugCode = sprintf("BUG-%s-%03d", $yearMonth, $nextSeq);
+            $bugCode = sprintf('BUG-%s-%03d', $yearMonth, $nextSeq);
             while (Bug::where('bug_code', $bugCode)->exists()) {
                 $nextSeq++;
-                $bugCode = sprintf("BUG-%s-%03d", $yearMonth, $nextSeq);
+                $bugCode = sprintf('BUG-%s-%03d', $yearMonth, $nextSeq);
             }
 
             $bug = Bug::create([
@@ -568,5 +662,58 @@ class BugController extends Controller
             'message' => "Berhasil mengimpor {$importedCount} Tiket Bug dari file Excel.",
             'imported_count' => $importedCount,
         ]);
+    }
+
+    private function expiredScheduleForImportRows(
+        array $rows,
+        ?int $defaultAppId,
+        QaScheduleLockService $scheduleLock,
+    ): ?QaSchedule {
+        foreach ($rows as $rowIndex => $row) {
+            if ($rowIndex === 1 || (trim((string) ($row['D'] ?? '')) === '' && trim((string) ($row['E'] ?? '')) === '')) {
+                continue;
+            }
+
+            $appId = $defaultAppId;
+            $appName = trim((string) ($row['A'] ?? ''));
+            if ($appName !== '') {
+                $appId = Application::query()
+                    ->where('name', 'like', "%{$appName}%")
+                    ->orWhere('code', 'like', "%{$appName}%")
+                    ->value('id') ?? $appId;
+            }
+
+            $moduleName = trim((string) ($row['B'] ?? ''));
+            if (! $appId || $moduleName === '') {
+                continue;
+            }
+
+            $module = ApplicationModule::query()
+                ->where('application_id', $appId)
+                ->where(function ($query) use ($moduleName): void {
+                    $query->where('name', 'like', $moduleName)
+                        ->orWhere('code', 'like', $moduleName);
+                })
+                ->first();
+
+            if (! $module) {
+                continue;
+            }
+
+            $menuName = trim((string) ($row['C'] ?? ''));
+            $menuId = $menuName === ''
+                ? null
+                : ApplicationMenu::query()
+                    ->where('module_id', $module->id)
+                    ->where('name', 'like', $menuName)
+                    ->value('id');
+            $lockedSchedule = $scheduleLock->expiredScheduleForModuleMenu($module->id, $menuId);
+
+            if ($lockedSchedule !== null) {
+                return $lockedSchedule;
+            }
+        }
+
+        return null;
     }
 }

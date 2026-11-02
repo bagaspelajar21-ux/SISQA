@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -22,6 +24,27 @@ class TestExecution extends Model
     protected $casts = [
         'executed_at' => 'datetime',
     ];
+
+    #[Scope]
+    protected function inQaDateRange(Builder $query, ?string $startDate, ?string $endDate): void
+    {
+        $query->where(function (Builder $query) use ($startDate, $endDate): void {
+            $query->whereHas('schedule', fn (Builder $scheduleQuery) => $scheduleQuery->overlappingDateRange($startDate, $endDate))
+                ->orWhereHas('testCase.schedules', fn (Builder $scheduleQuery) => $scheduleQuery->overlappingDateRange($startDate, $endDate))
+                ->orWhere(function (Builder $unscheduledQuery) use ($startDate, $endDate): void {
+                    $unscheduledQuery->whereNull('qa_schedule_id')
+                        ->whereDoesntHave('testCase.schedules');
+
+                    if ($startDate) {
+                        $unscheduledQuery->whereDate('executed_at', '>=', $startDate);
+                    }
+
+                    if ($endDate) {
+                        $unscheduledQuery->whereDate('executed_at', '<=', $endDate);
+                    }
+                });
+        });
+    }
 
     public function testCase()
     {

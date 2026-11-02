@@ -97,6 +97,7 @@
           <input
             type="date"
             v-model="filters.start_date"
+            :max="filters.end_date || undefined"
             @change="fetchReportData"
             class="w-full text-xs py-1.5 px-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
@@ -107,6 +108,7 @@
           <input
             type="date"
             v-model="filters.end_date"
+            :min="filters.start_date || undefined"
             @change="fetchReportData"
             class="w-full text-xs py-1.5 px-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
@@ -551,6 +553,7 @@ import { ref, reactive, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../api';
 import { useAuth } from '../auth';
+import { copyTextToClipboard, openWhatsAppMessage } from '../utils/whatsapp';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
@@ -830,28 +833,19 @@ const fetchReportData = async () => {
 
 const copyWaText = async () => {
   try {
-    await navigator.clipboard.writeText(waReportText.value);
+    await copyTextToClipboard(waReportText.value);
     copied.value = true;
     setTimeout(() => {
       copied.value = false;
     }, 2500);
-  } catch (e) {
-    const ta = document.createElement('textarea');
-    ta.value = waReportText.value;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    copied.value = true;
-    setTimeout(() => {
-      copied.value = false;
-    }, 2500);
+  } catch (error) {
+    console.error('Copy WA report error:', error);
+    window.alert('Laporan gagal disalin. Silakan coba kembali.');
   }
 };
 
 const sendToWhatsApp = () => {
-  const encoded = encodeURIComponent(waReportText.value);
-  window.open(`https://wa.me/?text=${encoded}`, '_blank');
+  openWhatsAppMessage(waReportText.value);
 };
 
 onMounted(() => {

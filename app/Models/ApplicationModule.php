@@ -43,4 +43,9 @@ class ApplicationModule extends Model
     {
         return $this->hasMany(Bug::class, 'module_id');
     }
+
+    public function schedules()
+    {
+        return $this->hasMany(QaSchedule::class, 'module_id');
+    }
 }

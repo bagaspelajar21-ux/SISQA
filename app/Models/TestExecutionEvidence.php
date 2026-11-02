@@ -9,6 +9,8 @@ class TestExecutionEvidence extends Model
 {
     use HasFactory;
 
+    protected $table = 'test_execution_evidences';
+
     protected $fillable = [
         'test_execution_id',
         'file_name',

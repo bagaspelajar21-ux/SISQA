@@ -7,7 +7,6 @@ use App\Models\ActivityLog;
 use App\Models\ApplicationModule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class ApplicationModuleController extends Controller
 {
@@ -22,7 +21,7 @@ class ApplicationModuleController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%");
+                    ->orWhere('code', 'like', "%{$search}%");
             });
         }
 
@@ -38,17 +37,12 @@ class ApplicationModuleController extends Controller
         $validated = $request->validate([
             'application_id' => 'required|exists:applications,id',
             'name' => 'required|string|max:255',
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('application_modules')->where(fn($q) => $q->where('application_id', $request->application_id)),
-            ],
             'description' => 'nullable|string',
             'order_index' => 'integer',
             'is_active' => 'boolean',
         ]);
 
+        $validated['code'] = $this->generateCode();
         $module = ApplicationModule::create($validated);
 
         ActivityLog::record(
@@ -79,20 +73,12 @@ class ApplicationModuleController extends Controller
         $validated = $request->validate([
             'application_id' => 'required|exists:applications,id',
             'name' => 'required|string|max:255',
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('application_modules')
-                    ->where(fn($q) => $q->where('application_id', $request->application_id))
-                    ->ignore($module->id),
-            ],
             'description' => 'nullable|string',
             'order_index' => 'integer',
             'is_active' => 'boolean',
         ]);
 
-        $old = $module->only(['name', 'code', 'description', 'order_index', 'is_active', 'application_id']);
+        $old = $module->only(['name', 'description', 'order_index', 'is_active', 'application_id']);
         $module->update($validated);
 
         ActivityLog::record(
@@ -129,5 +115,17 @@ class ApplicationModuleController extends Controller
         return response()->json([
             'message' => 'Modul berhasil dihapus.',
         ]);
+    }
+
+    private function generateCode(): string
+    {
+        $nextId = (int) ApplicationModule::withTrashed()->max('id') + 1;
+
+        do {
+            $code = sprintf('MOD-%04d', $nextId);
+            $nextId++;
+        } while (ApplicationModule::withTrashed()->where('code', $code)->exists());
+
+        return $code;
     }
 }

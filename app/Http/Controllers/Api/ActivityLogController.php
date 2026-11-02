@@ -11,6 +11,10 @@ class ActivityLogController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $dateRange = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
         $user = $request->user();
         $query = ActivityLog::with('user');
 
@@ -29,19 +33,19 @@ class ActivityLogController extends Controller
             $query->where('action', $action);
         }
 
-        if ($startDate = $request->input('start_date')) {
+        if ($startDate = $dateRange['start_date'] ?? null) {
             $query->whereDate('created_at', '>=', $startDate);
         }
 
-        if ($endDate = $request->input('end_date')) {
+        if ($endDate = $dateRange['end_date'] ?? null) {
             $query->whereDate('created_at', '<=', $endDate);
         }
 
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('description', 'like', "%{$search}%")
-                  ->orWhere('action', 'like', "%{$search}%")
-                  ->orWhere('module', 'like', "%{$search}%");
+                    ->orWhere('action', 'like', "%{$search}%")
+                    ->orWhere('module', 'like', "%{$search}%");
             });
         }
 

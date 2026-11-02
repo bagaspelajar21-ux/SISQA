@@ -5,17 +5,21 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\QaSchedule;
-use App\Models\TestCase;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class QaScheduleController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $dateRange = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $startDate = $dateRange['start_date'] ?? null;
+        $endDate = $dateRange['end_date'] ?? null;
+
         $query = QaSchedule::with(['application', 'module', 'menu', 'tester', 'testCases']);
 
         if ($appId = $request->input('application_id')) {
@@ -37,16 +41,12 @@ class QaScheduleController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('schedule_code', 'like', "%{$search}%");
+                    ->orWhere('schedule_code', 'like', "%{$search}%");
             });
         }
 
-        if ($startDate = $request->input('start_date')) {
-            $query->whereDate('start_time', '>=', $startDate);
-        }
-
-        if ($endDate = $request->input('end_date')) {
-            $query->whereDate('end_time', '<=', $endDate);
+        if ($startDate || $endDate) {
+            $query->overlappingDateRange($startDate, $endDate);
         }
 
         $schedules = $query->orderBy('start_time', 'desc')
@@ -55,13 +55,14 @@ class QaScheduleController extends Controller
         // Append computed progress & auto-detect overdue/expired schedule time
         $schedules->getCollection()->transform(function ($item) {
             $isExpired = $item->end_time && now()->gt($item->end_time);
-            if ($isExpired && !in_array($item->status, ['Completed', 'Cancelled', 'Overdue'])) {
+            if ($isExpired && ! in_array($item->status, ['Completed', 'Cancelled', 'Overdue'])) {
                 $item->update(['status' => 'Overdue']);
                 $item->status = 'Overdue';
             }
             $item->progress_info = $item->progress;
             $item->is_expired = $isExpired;
-            $item->can_continue_qa = !$isExpired && !in_array($item->status, ['Completed', 'Cancelled', 'Overdue']);
+            $item->can_continue_qa = ! $isExpired && ! in_array($item->status, ['Completed', 'Cancelled', 'Overdue']);
+
             return $item;
         });
 
@@ -70,6 +71,13 @@ class QaScheduleController extends Controller
 
     public function calendar(Request $request): JsonResponse
     {
+        $dateRange = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $startDate = $dateRange['start_date'] ?? null;
+        $endDate = $dateRange['end_date'] ?? null;
+
         $query = QaSchedule::with(['application', 'tester']);
 
         if ($appId = $request->input('application_id')) {
@@ -80,12 +88,8 @@ class QaScheduleController extends Controller
             $query->where('tester_id', $testerId);
         }
 
-        if ($request->input('start')) {
-            $query->where('end_time', '>=', $request->input('start'));
-        }
-
-        if ($request->input('end')) {
-            $query->where('start_time', '<=', $request->input('end'));
+        if ($startDate || $endDate) {
+            $query->overlappingDateRange($startDate, $endDate);
         }
 
         $events = $query->get()->map(function ($sch) {
@@ -126,20 +130,20 @@ class QaScheduleController extends Controller
         $endTime = $request->input('end_time');
         $excludeId = $request->input('exclude_id');
 
-        if (!$testerId || !$startTime || !$endTime) {
+        if (! $testerId || ! $startTime || ! $endTime) {
             return response()->json(['has_conflict' => false]);
         }
 
         $conflicts = QaSchedule::where('tester_id', $testerId)
             ->whereNotIn('status', ['Completed', 'Cancelled'])
-            ->when($excludeId, fn($q) => $q->where('id', '!=', $excludeId))
+            ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
             ->where(function ($q) use ($startTime, $endTime) {
                 $q->whereBetween('start_time', [$startTime, $endTime])
-                  ->orWhereBetween('end_time', [$startTime, $endTime])
-                  ->orWhere(function ($sub) use ($startTime, $endTime) {
-                      $sub->where('start_time', '<=', $startTime)
-                          ->where('end_time', '>=', $endTime);
-                  });
+                    ->orWhereBetween('end_time', [$startTime, $endTime])
+                    ->orWhere(function ($sub) use ($startTime, $endTime) {
+                        $sub->where('start_time', '<=', $startTime)
+                            ->where('end_time', '>=', $endTime);
+                    });
             })
             ->get(['id', 'schedule_code', 'title', 'start_time', 'end_time']);
 
@@ -172,7 +176,7 @@ class QaScheduleController extends Controller
         // Auto-generate code
         $yearMonth = date('Ym');
         $count = QaSchedule::where('schedule_code', 'like', "SCH-{$yearMonth}-%")->count();
-        $validated['schedule_code'] = sprintf("SCH-%s-%03d", $yearMonth, $count + 1);
+        $validated['schedule_code'] = sprintf('SCH-%s-%03d', $yearMonth, $count + 1);
         $validated['status'] = $validated['status'] ?? 'Scheduled';
 
         $testCaseIds = $validated['test_case_ids'] ?? [];
@@ -184,7 +188,7 @@ class QaScheduleController extends Controller
 
         $schedule = QaSchedule::create($validated);
 
-        if (!empty($testCaseIds)) {
+        if (! empty($testCaseIds)) {
             $schedule->testCases()->sync($testCaseIds);
         }
 
@@ -207,7 +211,7 @@ class QaScheduleController extends Controller
     public function show(QaSchedule $schedule): JsonResponse
     {
         $isExpired = $schedule->end_time && now()->gt($schedule->end_time);
-        if ($isExpired && !in_array($schedule->status, ['Completed', 'Cancelled', 'Overdue'])) {
+        if ($isExpired && ! in_array($schedule->status, ['Completed', 'Cancelled', 'Overdue'])) {
             $schedule->update(['status' => 'Overdue']);
             $schedule->status = 'Overdue';
         }
@@ -216,13 +220,19 @@ class QaScheduleController extends Controller
         $data = $schedule->toArray();
         $data['progress_info'] = $schedule->progress;
         $data['is_expired'] = $isExpired;
-        $data['can_continue_qa'] = !$isExpired && !in_array($schedule->status, ['Completed', 'Cancelled', 'Overdue']);
+        $data['can_continue_qa'] = ! $isExpired && ! in_array($schedule->status, ['Completed', 'Cancelled', 'Overdue']);
 
         return response()->json(['schedule' => $data]);
     }
 
     public function update(Request $request, QaSchedule $schedule): JsonResponse
     {
+        if ($schedule->hasPassedEndTime() && ! $request->user()->isAdmin()) {
+            return response()->json([
+                'message' => "Jadwal QA ({$schedule->schedule_code}) sudah berakhir dan terkunci. Hanya Admin yang dapat mengubah jadwal ini.",
+            ], 403);
+        }
+
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'application_id' => 'required|exists:applications,id',
@@ -267,8 +277,14 @@ class QaScheduleController extends Controller
         ]);
     }
 
-    public function destroy(QaSchedule $schedule): JsonResponse
+    public function destroy(Request $request, QaSchedule $schedule): JsonResponse
     {
+        if ($schedule->hasPassedEndTime() && ! $request->user()->isAdmin()) {
+            return response()->json([
+                'message' => "Jadwal QA ({$schedule->schedule_code}) sudah berakhir dan terkunci. Hanya Admin yang dapat menghapus jadwal ini.",
+            ], 403);
+        }
+
         $code = $schedule->schedule_code;
         $schedule->delete();
 

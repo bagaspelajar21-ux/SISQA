@@ -78,7 +78,7 @@
 
     <!-- Filters -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
         <div>
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Cari Bug</label>
           <input
@@ -131,6 +131,26 @@
             <option value="Closed">Closed</option>
             <option value="Rejected">Rejected</option>
           </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Mulai QA</label>
+          <input
+            v-model="filters.start_date"
+            :max="filters.end_date || undefined"
+            type="date"
+            @change="fetchBugs(1)"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Selesai QA</label>
+          <input
+            v-model="filters.end_date"
+            :min="filters.start_date || undefined"
+            type="date"
+            @change="fetchBugs(1)"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
         </div>
         <div class="flex items-end">
           <button
@@ -194,9 +214,20 @@
               </td>
               <td class="py-3.5 px-4">
                 <Badge :value="b.status" />
+                <div
+                  v-if="b.is_schedule_expired && !b.can_manage_qa"
+                  class="mt-1 text-[10px] font-bold text-rose-700"
+                  :title="`Jadwal QA ${b.expired_schedule_code || ''} telah berakhir`"
+                >
+                  🔒 QA terkunci
+                </div>
               </td>
               <td class="py-3.5 px-4 text-slate-500 text-[11px]">
                 {{ formatDate(b.report_date) }}
+                <div v-if="getBugSchedule(b)" class="mt-1 whitespace-nowrap text-[10px]">
+                  <span class="font-mono font-semibold text-indigo-600">{{ getBugSchedule(b).schedule_code }}</span>
+                  · {{ formatDateTime(getBugSchedule(b).start_time) }} – {{ formatDateTime(getBugSchedule(b).end_time) }}
+                </div>
               </td>
               <td class="py-3.5 px-4 text-right whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1.5">
@@ -208,7 +239,7 @@
                     Detail
                   </button>
                   <button
-                    v-if="hasFeatureAccess('edit_bug')"
+                    v-if="hasFeatureAccess('edit_bug') && b.can_manage_qa"
                     @click="openEditModal(b)"
                     class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Ubah Status / Penugasan"
@@ -216,7 +247,7 @@
                     Edit
                   </button>
                   <button
-                    v-if="isAdmin"
+                    v-if="hasFeatureAccess('edit_bug') && b.can_manage_qa"
                     @click="confirmDelete(b)"
                     class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-semibold transition-colors cursor-pointer"
                     title="Hapus Bug"
@@ -549,13 +580,13 @@
                 <div class="font-bold text-[11px] truncate text-slate-800">{{ ev.original_name }}</div>
                 <div class="text-[10px] text-slate-400 uppercase font-semibold">Tipe: {{ ev.evidence_type }}</div>
               </div>
-              <a
-                :href="`/api/files/bug/${ev.id}/download`"
-                target="_blank"
+              <button
+                type="button"
+                @click="downloadBugEvidence(ev)"
                 class="px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold text-[10px] shrink-0"
               >
                 Unduh
-              </a>
+              </button>
             </div>
           </div>
         </div>
@@ -670,8 +701,17 @@ import ConfirmDialog from '../components/ConfirmDialog.vue';
 import EmptyState from '../components/EmptyState.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
+import { downloadAuthenticatedFile } from '../utils/files';
 
-const { isAdmin, hasFeatureAccess } = useAuth();
+const { hasFeatureAccess } = useAuth();
+
+const downloadBugEvidence = async (evidence) => {
+  try {
+    await downloadAuthenticatedFile('bug', evidence.id, evidence.original_name);
+  } catch (error) {
+    alert(error.response?.data?.message || 'Gagal mengunduh bukti bug.');
+  }
+};
 
 const loading = ref(false);
 const saving = ref(false);
@@ -693,6 +733,8 @@ const filters = reactive({
   application_id: '',
   severity: '',
   status: '',
+  start_date: '',
+  end_date: '',
 });
 
 const showCreateModal = ref(false);
@@ -790,6 +832,8 @@ const formatDateTime = (str) => {
   return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
+const getBugSchedule = (bug) => bug.schedule || bug.test_case?.schedules?.[0] || null;
+
 const fetchLookups = async () => {
   try {
     const [appRes, userRes] = await Promise.all([
@@ -831,6 +875,8 @@ const resetFilters = () => {
   filters.application_id = '';
   filters.severity = '';
   filters.status = '';
+  filters.start_date = '';
+  filters.end_date = '';
   fetchBugs(1);
 };
 
