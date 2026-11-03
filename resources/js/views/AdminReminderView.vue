@@ -184,6 +184,7 @@
               class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-normal focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="user">User</option>
+              <option value="owner">Owner / Atasan</option>
               <option value="admin">Admin</option>
             </select>
           </label>

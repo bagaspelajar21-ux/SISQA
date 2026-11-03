@@ -54,7 +54,7 @@ class QaScheduleController extends Controller
             ->paginate($request->input('per_page', 15));
 
         // Append computed progress & auto-detect overdue/expired schedule time
-        $schedules->getCollection()->transform(function ($item) use ($scheduleLock) {
+        $schedules->getCollection()->transform(function ($item) use ($request, $scheduleLock) {
             $isExpired = $item->end_time && now()->gt($item->end_time);
             if ($isExpired && ! in_array($item->status, ['Completed', 'Cancelled', 'Overdue'])) {
                 $item->update(['status' => 'Overdue']);

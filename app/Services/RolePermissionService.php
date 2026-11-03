@@ -50,6 +50,17 @@ class RolePermissionService
         ];
     }
 
+    /**
+     * @return array{menus: list<string>, features: list<string>}
+     */
+    public static function ownerPermissions(): array
+    {
+        return [
+            'menus' => ['/', '/reports', '/reports/wa'],
+            'features' => ['dashboard_all_data', 'dashboard_exec_charts', 'export_report'],
+        ];
+    }
+
     public static function allAvailableDefinitions(): array
     {
         $masterMenus = ApplicationMenu::query()
@@ -188,6 +199,13 @@ class RolePermissionService
                 'menus' => $menus,
                 'features' => array_column($defs['features'], 'key'),
                 'master_menus' => self::masterMenusForPermissions($menus),
+            ];
+        }
+
+        if ($user->isOwner()) {
+            return [
+                ...self::ownerPermissions(),
+                'master_menus' => [],
             ];
         }
 

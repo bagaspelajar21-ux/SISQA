@@ -121,6 +121,18 @@
           />
         </div>
       </div>
+      <div v-if="currentUser?.role === 'owner'" class="mt-4 flex flex-wrap items-center gap-2">
+        <span class="text-[11px] font-bold text-slate-600">Pantau cepat:</span>
+        <button
+          v-for="period in reportPeriods"
+          :key="period.value"
+          type="button"
+          @click="applyReportPeriod(period.value)"
+          class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-700 transition-colors hover:bg-blue-100"
+        >
+          {{ period.label }}
+        </button>
+      </div>
     </div>
 
     <!-- Loading State -->
@@ -400,6 +412,39 @@ const filters = reactive({
   start_date: '',
   end_date: '',
 });
+
+const reportPeriods = [
+  { value: 'daily', label: 'Hari Ini' },
+  { value: 'weekly', label: 'Minggu Ini' },
+  { value: 'monthly', label: 'Bulan Ini' },
+];
+
+const formatDateInput = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
+
+const applyReportPeriod = (period) => {
+  const today = new Date();
+  const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const endDate = new Date(startDate);
+
+  if (period === 'weekly') {
+    const daysSinceMonday = (startDate.getDay() + 6) % 7;
+    startDate.setDate(startDate.getDate() - daysSinceMonday);
+    endDate.setDate(startDate.getDate() + 6);
+  } else if (period === 'monthly') {
+    startDate.setDate(1);
+    endDate.setMonth(startDate.getMonth() + 1, 0);
+  }
+
+  filters.start_date = formatDateInput(startDate);
+  filters.end_date = formatDateInput(endDate);
+  fetchReportData();
+};
 
 const fetchLookups = async () => {
   try {

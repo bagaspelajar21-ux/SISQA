@@ -76,7 +76,7 @@ class AdminReminderController extends Controller
             'recipient_role' => [
                 Rule::requiredIf($request->input('recipient_type') === 'role'),
                 'nullable',
-                Rule::in(['admin', 'user']),
+                Rule::in(['admin', 'user', 'owner']),
             ],
             'recipient_user_id' => [
                 Rule::requiredIf($request->input('recipient_type') === 'user'),
