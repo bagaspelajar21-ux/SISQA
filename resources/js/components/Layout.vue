@@ -87,29 +87,6 @@
           ></span>
         </router-link>
 
-        <div v-if="visibleMasterApplicationMenus.length > 0" class="pt-4 space-y-1.5">
-          <div v-if="!sidebarCollapsed" class="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-sky-300/50">
-            Sub-Menu Aplikasi
-          </div>
-          <a
-            v-for="menu in visibleMasterApplicationMenus"
-            :key="menu.key"
-            :href="menu.href"
-            :target="menu.isExternal ? '_blank' : undefined"
-            :rel="menu.isExternal ? 'noopener noreferrer' : undefined"
-            class="flex items-center rounded-2xl border border-transparent px-2.5 py-2 text-xs font-semibold text-slate-300/85 transition-all hover:border-sky-400/15 hover:bg-white/8 hover:text-white"
-            :title="sidebarCollapsed ? `${menu.application_name} / ${menu.module_name} / ${menu.name}` : ''"
-          >
-            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-sky-400/15 bg-slate-900/60 text-sky-400 transition-all group-hover:border-sky-400/30 group-hover:bg-sky-500/20 group-hover:text-sky-300">
-              <ModernIcon name="master-menus" size="md" />
-            </span>
-            <span v-if="!sidebarCollapsed" class="ml-3 min-w-0 truncate">
-              <span class="block truncate">{{ menu.name }}</span>
-              <span class="block truncate text-[9px] font-medium text-slate-400">{{ menu.application_name }} · {{ menu.module_name }}</span>
-            </span>
-          </a>
-        </div>
-
         <!-- Admin & Authorized Master Data Section -->
         <div v-if="isAdmin || visibleMasterSubItems.length > 0" class="pt-4 space-y-1.5">
           <div v-if="!sidebarCollapsed" class="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-sky-300/50">
@@ -766,25 +743,6 @@ const mobileBottomNavItems = computed(() => {
 const visibleMasterSubItems = computed(() => {
   return isAdmin.value ? masterSubItems : [];
 });
-
-const visibleMasterApplicationMenus = computed(() => {
-  const menus = currentUser.value?.permissions?.master_menus || [];
-
-  return menus
-    .map((menu) => {
-      const href = safeMasterMenuHref(menu.url_or_route);
-      return href ? { ...menu, href, isExternal: /^https?:\/\//i.test(href) } : null;
-    })
-    .filter(Boolean);
-});
-
-function safeMasterMenuHref(value) {
-  if (typeof value !== 'string') return '';
-  const href = value.trim();
-  if (/^https?:\/\/\S+$/i.test(href)) return href;
-  if (href.startsWith('/') && !href.startsWith('//')) return href;
-  return '';
-}
 
 const notifications = ref([]);
 const unreadNotificationCount = ref(0);
