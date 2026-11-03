@@ -35,7 +35,8 @@ class DashboardController extends Controller
             ], 403);
         }
 
-        $canViewAllData = ($user && $user->role === 'admin') || in_array('dashboard_all_data', $allowedFeatures, true);
+        $canViewAllData = ($user && ($user->isAdmin() || $user->isOwner()))
+            || in_array('dashboard_all_data', $allowedFeatures, true);
         $canViewExecCharts = ($user && $user->role === 'admin') || in_array('dashboard_exec_charts', $allowedFeatures, true);
         $canUseQuickActions = ($user && $user->role === 'admin') || in_array('dashboard_quick_actions', $allowedFeatures, true);
 

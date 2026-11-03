@@ -51,6 +51,11 @@ class User extends Authenticatable
         return $this->role === 'user';
     }
 
+    public function isOwner(): bool
+    {
+        return $this->role === 'owner';
+    }
+
     public function getProfilePhotoUrlAttribute(): ?string
     {
         return $this->profile_photo_path

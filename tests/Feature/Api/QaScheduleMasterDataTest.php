@@ -77,6 +77,10 @@ class QaScheduleMasterDataTest extends TestCase
             'module_id' => $module->id,
             'menu_id' => $menu->id,
         ]);
+
+        $this->getJson('/api/schedules')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $response->json('schedule.id'));
     }
 
     public function test_rejects_a_submenu_that_does_not_belong_to_the_selected_application_and_module(): void

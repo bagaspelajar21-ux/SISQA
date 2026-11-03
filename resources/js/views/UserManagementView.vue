@@ -32,69 +32,6 @@
       </div>
     </div>
 
-    <!-- Role User Active Menu & Feature Summary Card -->
-    <div class="bg-white rounded-2xl p-5 border border-purple-200/80 shadow-xs bg-gradient-to-r from-purple-50/40 via-white to-indigo-50/30">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 mb-3 border-b border-purple-100">
-        <div>
-          <h3 class="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-            <span>🛡️ Ringkasan Hak Akses Default untuk Role User</span>
-          </h3>
-          <p class="text-[11px] text-slate-500 mt-0.5">
-            Menu dan fitur yang dicentang di bawah ini akan otomatis keluar pada akun dengan Role <strong>User</strong>.
-          </p>
-        </div>
-        <button
-          type="button"
-          @click="openRoleChecklistModal"
-          class="px-3.5 py-1.5 rounded-xl bg-purple-100 hover:bg-purple-200 text-purple-800 text-xs font-bold transition-colors cursor-pointer shrink-0"
-        >
-          ⚙️ Ubah Ceklist Role User
-        </button>
-      </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
-        <div class="p-3.5 rounded-xl bg-white border border-slate-200/80">
-          <div class="font-extrabold text-slate-700 mb-2 text-[11px] uppercase tracking-wider">
-            📌 Menu Navigasi yang Aktif di Role User ({{ roleUserConfig.menus.length }} / {{ definitions.menus.length }}):
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            <span
-              v-for="m in definitions.menus"
-              :key="m.key"
-              :class="[
-                'px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all',
-                roleUserConfig.menus.includes(m.key)
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-slate-50 text-slate-400 border-slate-200 line-through'
-              ]"
-            >
-              {{ roleUserConfig.menus.includes(m.key) ? '✓' : '✕' }} {{ m.label }}
-            </span>
-          </div>
-        </div>
-
-        <div class="p-3.5 rounded-xl bg-white border border-slate-200/80">
-          <div class="font-extrabold text-slate-700 mb-2 text-[11px] uppercase tracking-wider">
-            ⚡ Fitur &amp; Tombol Aksi yang Aktif di Role User ({{ roleUserConfig.features.length }} / {{ definitions.features.length }}):
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            <span
-              v-for="f in definitions.features"
-              :key="f.key"
-              :class="[
-                'px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all',
-                roleUserConfig.features.includes(f.key)
-                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                  : 'bg-slate-50 text-slate-400 border-slate-200 line-through'
-              ]"
-            >
-              {{ roleUserConfig.features.includes(f.key) ? '✓' : '✕' }} {{ f.label }}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Users Table -->
     <LoadingSpinner v-if="loading && users.length === 0" text="Memuat data pengguna..." />
     <div v-else class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
@@ -119,8 +56,8 @@
               </td>
               <td class="py-3.5 px-4 font-mono text-slate-700">{{ u.email }}</td>
               <td class="py-3.5 px-4">
-                <span :class="['px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase', u.role === 'admin' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-blue-50 text-blue-700 border border-blue-200']">
-                  {{ u.role }}
+                <span :class="['px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase', u.role === 'admin' ? 'bg-purple-50 text-purple-700 border border-purple-200' : u.role === 'owner' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200']">
+                  {{ u.role === 'owner' ? 'Owner / Atasan' : u.role }}
                 </span>
               </td>
               <td class="py-3.5 px-4">
@@ -190,6 +127,7 @@
             <label class="block font-bold text-slate-700 mb-1">Role Pengguna *</label>
             <select v-model="form.role" required class="w-full py-2 px-3 border border-slate-300 rounded-xl font-bold">
               <option value="user">User / QA Tester (Sesuai Ceklist)</option>
+              <option value="owner">Owner / Atasan (Pantau QA)</option>
               <option value="admin">Admin QA (Akses Penuh)</option>
             </select>
           </div>
@@ -234,7 +172,7 @@
               </div>
               <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
                 <label
-                  v-for="m in definitions.menus"
+                  v-for="m in visiblePermissionMenus"
                   :key="m.key"
                   class="flex items-start gap-2.5 p-2 rounded-xl bg-white border border-slate-200/80 hover:border-blue-300 cursor-pointer"
                 >
@@ -321,7 +259,7 @@
 
             <div class="space-y-1.5 max-h-80 overflow-y-auto pr-1">
               <label
-                v-for="m in definitions.menus"
+                v-for="m in visiblePermissionMenus"
                 :key="m.key"
                 class="flex items-start gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 hover:border-purple-300 cursor-pointer transition-colors"
               >
@@ -415,7 +353,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import api from '../api';
 import { showAlert } from '../dialog';
 import Modal from '../components/Modal.vue';
@@ -439,6 +377,10 @@ const definitions = reactive({
   menus: [],
   features: [],
 });
+
+const visiblePermissionMenus = computed(() => definitions.menus.filter(
+  (menu) => menu.application_name?.trim().toLocaleLowerCase() !== 'asis erp',
+));
 
 const roleUserConfig = reactive({
   menus: ['/', '/schedules', '/test-cases', '/bugs', '/retests', '/flows', '/guides', '/reports', '/reports/wa', '/activity-logs'],
@@ -490,10 +432,13 @@ const openRoleChecklistModal = () => {
 };
 
 const toggleAllRoleMenus = () => {
-  if (roleUserConfig.menus.length === definitions.menus.length) {
-    roleUserConfig.menus = [];
+  const visibleMenuKeys = visiblePermissionMenus.value.map((menu) => menu.key);
+  const hasAllVisibleMenus = visibleMenuKeys.every((key) => roleUserConfig.menus.includes(key));
+
+  if (hasAllVisibleMenus) {
+    roleUserConfig.menus = roleUserConfig.menus.filter((key) => !visibleMenuKeys.includes(key));
   } else {
-    roleUserConfig.menus = definitions.menus.map((m) => m.key);
+    roleUserConfig.menus = [...new Set([...roleUserConfig.menus, ...visibleMenuKeys])];
   }
 };
 
@@ -527,10 +472,13 @@ const resetUserFormToDefaultRole = () => {
 };
 
 const toggleAllUserFormMenus = () => {
-  if (form.permissions.menus.length === definitions.menus.length) {
-    form.permissions.menus = [];
+  const visibleMenuKeys = visiblePermissionMenus.value.map((menu) => menu.key);
+  const hasAllVisibleMenus = visibleMenuKeys.every((key) => form.permissions.menus.includes(key));
+
+  if (hasAllVisibleMenus) {
+    form.permissions.menus = form.permissions.menus.filter((key) => !visibleMenuKeys.includes(key));
   } else {
-    form.permissions.menus = definitions.menus.map((m) => m.key);
+    form.permissions.menus = [...new Set([...form.permissions.menus, ...visibleMenuKeys])];
   }
 };
 

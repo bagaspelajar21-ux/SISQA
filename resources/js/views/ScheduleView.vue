@@ -788,6 +788,7 @@ const fetchSchedules = async (page = 1) => {
     pagination.total = res.data.total;
   } catch (e) {
     console.error('Fetch schedules error:', e);
+    void showAlert(e.response?.data?.message || 'Gagal memuat daftar jadwal.', { title: 'Jadwal Gagal Dimuat' });
   } finally {
     loading.value = false;
   }
