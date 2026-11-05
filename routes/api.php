@@ -61,6 +61,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // QA Schedules
         Route::get('/schedules/calendar', [QaScheduleController::class, 'calendar']);
         Route::get('/schedules/check-conflict', [QaScheduleController::class, 'checkConflict']);
+        Route::get('/schedules/{schedule}/menus', [QaScheduleController::class, 'menus']);
+        Route::get('/schedules/{schedule}/test-cases', [QaScheduleController::class, 'testCases']);
+        Route::get('/schedules/{schedule}/activities', [QaScheduleController::class, 'activities']);
+        Route::put('/schedules/{schedule}/test-cases', [QaScheduleController::class, 'syncTestCases']);
         Route::apiResource('schedules', QaScheduleController::class);
 
         // Test Cases & Executions

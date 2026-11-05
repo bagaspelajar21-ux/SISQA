@@ -120,6 +120,17 @@
           </select>
         </div>
         <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Jadwal QA</label>
+          <select
+            v-model="filters.qa_schedule_id"
+            @change="fetchTestCases(1)"
+            class="w-full text-xs py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Semua Jadwal</option>
+            <option v-for="s in schedules" :key="s.id" :value="s.id">[{{ s.schedule_code }}] {{ s.title }}</option>
+          </select>
+        </div>
+        <div>
           <label class="block text-[11px] font-bold text-slate-600 mb-1">Status Hasil</label>
           <select
             v-model="filters.status"
@@ -493,6 +504,32 @@
           </div>
 
           <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 mb-1">
+              Jadwal QA (Opsional)
+              <span class="text-slate-400 font-semibold ml-1">— tautkan test case ke jadwal yang mencakup submenu ini</span>
+            </label>
+            <div class="rounded-lg border border-slate-300 bg-white">
+              <div class="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
+                <span class="text-[10px] font-bold text-slate-500 uppercase">{{ form.schedule_ids.length }} jadwal dipilih</span>
+                <button type="button" @click="form.schedule_ids = []" class="text-[10px] font-bold text-slate-500 hover:underline cursor-pointer">Bersihkan</button>
+              </div>
+              <div class="max-h-28 overflow-y-auto p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                <label
+                  v-for="s in formScheduleOptions"
+                  :key="s.id"
+                  class="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-[11px] text-slate-700"
+                >
+                  <input v-model="form.schedule_ids" type="checkbox" :value="s.id" class="rounded text-blue-600" />
+                  <span class="truncate">[{{ s.schedule_code }}] {{ s.title }}</span>
+                </label>
+                <p v-if="formScheduleOptions.length === 0" class="col-span-full px-2 py-2 text-[10px] text-slate-400">
+                  Tidak ada jadwal yang cocok dengan aplikasi/modul test case ini.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="md:col-span-2">
             <label class="block text-xs font-bold text-slate-700 mb-1">Hasil yang Diharapkan (Expected Result) <span class="text-red-500">*</span></label>
             <textarea
               v-model="form.expected_result"
@@ -712,6 +749,7 @@ const executing = ref(false);
 const testCases = ref([]);
 const apps = ref([]);
 const users = ref([]);
+const schedules = ref([]);
 const filterModules = ref([]);
 const formModuleOptions = ref([]);
 const formMenuOptions = ref([]);
@@ -727,6 +765,7 @@ const filters = reactive({
   search: '',
   application_id: '',
   module_id: '',
+  qa_schedule_id: '',
   status: '',
   priority: '',
   start_date: '',
@@ -736,6 +775,10 @@ const filterModuleOptions = computed(() => filterModules.value.filter((module) =
   !filters.application_id || Number(module.application_id) === Number(filters.application_id)
 )));
 const applicationName = (applicationId) => apps.value.find((app) => Number(app.id) === Number(applicationId))?.name || 'Aplikasi';
+const formScheduleOptions = computed(() => schedules.value.filter((s) => (
+  (!form.application_id || Number(s.application_id) === Number(form.application_id))
+  && (!form.module_id || Number(s.module_id) === Number(form.module_id))
+)));
 
 const showModal = ref(false);
 const isEdit = ref(false);
@@ -751,6 +794,7 @@ const form = reactive({
   expected_result: '',
   preconditions: '',
   test_steps: '',
+  schedule_ids: [],
 });
 
 const showExecuteModal = ref(false);
@@ -830,14 +874,16 @@ const formatDateTime = (str) => {
 
 const fetchLookups = async () => {
   try {
-    const [appRes, userRes, moduleRes] = await Promise.all([
+    const [appRes, userRes, moduleRes, scheduleRes] = await Promise.all([
       api.get('/cascade/apps'),
       api.get('/cascade/users'),
       api.get('/cascade/modules'),
+      api.get('/schedules', { params: { per_page: 100 } }),
     ]);
     apps.value = appRes.data;
     users.value = userRes.data;
     filterModules.value = moduleRes.data;
+    schedules.value = scheduleRes.data.data || [];
   } catch (e) {}
 };
 
@@ -870,6 +916,7 @@ const resetFilters = () => {
   filters.search = '';
   filters.application_id = '';
   filters.module_id = '';
+  filters.qa_schedule_id = '';
   filters.status = '';
   filters.priority = '';
   filters.start_date = '';
@@ -914,6 +961,7 @@ const openCreateModal = async () => {
   form.expected_result = '';
   form.preconditions = '';
   form.test_steps = '';
+  form.schedule_ids = [];
   showModal.value = true;
 };
 
@@ -933,16 +981,22 @@ const openEditModal = async (tc) => {
   form.expected_result = tc.expected_result;
   form.preconditions = tc.preconditions || '';
   form.test_steps = tc.test_steps || '';
+  form.schedule_ids = (tc.schedules || []).map((s) => s.id);
   showModal.value = true;
 };
 
 const saveTestCase = async () => {
   saving.value = true;
   try {
+    const payload = {
+      ...form,
+      qa_schedule_ids: form.schedule_ids,
+    };
+    delete payload.schedule_ids;
     if (isEdit.value) {
-      await api.put(`/test-cases/${currentId.value}`, form);
+      await api.put(`/test-cases/${currentId.value}`, payload);
     } else {
-      await api.post('/test-cases', form);
+      await api.post('/test-cases', payload);
     }
     showModal.value = false;
     fetchTestCases(pagination.current_page);

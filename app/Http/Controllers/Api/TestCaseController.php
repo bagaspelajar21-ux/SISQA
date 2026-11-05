@@ -14,7 +14,9 @@ use App\Models\TestExecutionEvidence;
 use App\Services\QaScheduleLockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -60,6 +62,13 @@ class TestCaseController extends Controller
 
         if ($menuId = $request->input('menu_id')) {
             $query->where('menu_id', $menuId);
+        }
+
+        if ($scheduleId = $request->input('qa_schedule_id')) {
+            $schedule = QaSchedule::find($scheduleId);
+            if ($schedule !== null) {
+                $query->whereIn('id', $schedule->coveredTestCaseIds());
+            }
         }
 
         if ($testerId = $request->input('tester_id')) {
@@ -127,6 +136,8 @@ class TestCaseController extends Controller
             'assigned_tester_id' => 'nullable|exists:users,id',
             'priority' => ['required', Rule::in(['Urgent', 'High', 'Medium', 'Low'])],
             'is_active' => 'boolean',
+            'qa_schedule_ids' => 'nullable|array',
+            'qa_schedule_ids.*' => 'exists:qa_schedules,id',
         ]);
 
         if (! $request->user()->isAdmin()
@@ -145,7 +156,14 @@ class TestCaseController extends Controller
         $validated['test_case_code'] = sprintf('%s-%04d', $prefix, $count + 1);
         $validated['is_active'] = $validated['is_active'] ?? true;
 
+        $scheduleIds = $validated['qa_schedule_ids'] ?? null;
+        unset($validated['qa_schedule_ids']);
+
         $testCase = TestCase::create($validated);
+
+        if ($scheduleIds !== null) {
+            $this->syncScheduleLinks($testCase, $scheduleIds);
+        }
 
         ActivityLog::record(
             'test_case_created',
@@ -211,6 +229,8 @@ class TestCaseController extends Controller
             'assigned_tester_id' => 'nullable|exists:users,id',
             'priority' => ['required', Rule::in(['Urgent', 'High', 'Medium', 'Low'])],
             'is_active' => 'boolean',
+            'qa_schedule_ids' => 'nullable|array',
+            'qa_schedule_ids.*' => 'exists:qa_schedules,id',
         ]);
 
         if (! $request->user()->isAdmin()
@@ -223,8 +243,15 @@ class TestCaseController extends Controller
             ], 403);
         }
 
+        $scheduleIds = $validated['qa_schedule_ids'] ?? null;
+        unset($validated['qa_schedule_ids']);
+
         $old = $testCase->only(['title', 'priority', 'assigned_tester_id', 'is_active', 'expected_result']);
         $testCase->update($validated);
+
+        if ($scheduleIds !== null) {
+            $this->syncScheduleLinks($testCase, $scheduleIds);
+        }
 
         ActivityLog::record(
             'test_case_updated',
@@ -283,6 +310,52 @@ class TestCaseController extends Controller
             'evidences.*' => 'file|max:51200|mimes:png,jpg,jpeg,webp,pdf,mp4',
         ]);
 
+        $schedule = null;
+        if (! empty($validated['qa_schedule_id'])) {
+            $schedule = QaSchedule::find($validated['qa_schedule_id']);
+
+            if ($schedule === null) {
+                return response()->json([
+                    'message' => 'Jadwal QA yang dipilih tidak ditemukan.',
+                    'errors' => ['qa_schedule_id' => ['Jadwal QA yang dipilih tidak ditemukan.']],
+                ], 422);
+            }
+
+            // Test case harus berada dalam cakupan jadwal (submenu tercakup
+            // atau terdaftar eksplisit pada pivot jadwal).
+            $isCovered = $schedule->coveredTestCaseIds()->contains($testCase->id)
+                || ($testCase->menu_id !== null && $schedule->coversMenu((int) $testCase->menu_id));
+
+            if (! $isCovered) {
+                return response()->json([
+                    'message' => 'Test case ini tidak termasuk dalam cakupan jadwal QA yang dipilih.',
+                    'errors' => [
+                        'qa_schedule_id' => ['Test case ini tidak termasuk dalam cakupan jadwal QA yang dipilih.'],
+                    ],
+                ], 422);
+            }
+
+            if (! $user->isAdmin()) {
+                if (! $schedule->isAssignedTo($user->id)) {
+                    return response()->json([
+                        'message' => 'Anda tidak ditugaskan untuk mengerjakan jadwal QA ini.',
+                    ], 403);
+                }
+
+                if (in_array($schedule->status, ['Cancelled', 'Completed'], true)) {
+                    return response()->json([
+                        'message' => "Jadwal QA ({$schedule->schedule_code}) sudah {$schedule->status} dan tidak dapat digunakan untuk eksekusi.",
+                    ], 403);
+                }
+
+                if ($schedule->start_time !== null && now()->lessThan($schedule->start_time)) {
+                    return response()->json([
+                        'message' => "Jadwal QA ({$schedule->schedule_code}) belum dimulai. Eksekusi dapat dilakukan mulai ".$schedule->start_time->format('d/m/Y H:i').'.',
+                    ], 403);
+                }
+            }
+        }
+
         $lockedSchedule = $request->user()->isAdmin()
             ? null
             : $scheduleLock->expiredScheduleForContext(
@@ -292,52 +365,44 @@ class TestCaseController extends Controller
                 $testCase->menu_id,
             );
 
-        if (
-            ! empty($validated['qa_schedule_id'])
-            && ! $testCase->schedules()->whereKey($validated['qa_schedule_id'])->exists()
-        ) {
-            return response()->json([
-                'message' => 'Jadwal QA yang dipilih tidak terhubung dengan test case ini.',
-                'errors' => [
-                    'qa_schedule_id' => ['Jadwal QA yang dipilih tidak terhubung dengan test case ini.'],
-                ],
-            ], 422);
-        }
-
         if ($lockedSchedule !== null) {
             return response()->json([
                 'message' => $scheduleLock->lockMessage($lockedSchedule),
             ], 403);
         }
 
-        $execution = TestExecution::create([
-            'test_case_id' => $testCase->id,
-            'qa_schedule_id' => $validated['qa_schedule_id'] ?? null,
-            'tester_id' => $user->id,
-            'status' => $validated['status'],
-            'actual_result' => $validated['actual_result'] ?? null,
-            'notes' => $validated['notes'] ?? null,
-            'feature_description' => $validated['feature_description'] ?? null,
-            'executed_at' => now(),
-        ]);
+        $execution = DB::transaction(function () use ($request, $testCase, $user, $validated) {
+            $execution = TestExecution::create([
+                'test_case_id' => $testCase->id,
+                'qa_schedule_id' => $validated['qa_schedule_id'] ?? null,
+                'tester_id' => $user->id,
+                'status' => $validated['status'],
+                'actual_result' => $validated['actual_result'] ?? null,
+                'notes' => $validated['notes'] ?? null,
+                'feature_description' => $validated['feature_description'] ?? null,
+                'executed_at' => now(),
+            ]);
 
-        // Handle uploaded evidences
-        if ($request->hasFile('evidences')) {
-            foreach ($request->file('evidences') as $file) {
-                $origName = $file->getClientOriginalName();
-                $path = $file->store('evidences/executions', 'local');
+            // Handle uploaded evidences
+            if ($request->hasFile('evidences')) {
+                foreach ($request->file('evidences') as $file) {
+                    $origName = $file->getClientOriginalName();
+                    $path = $file->store('evidences/executions', 'local');
 
-                TestExecutionEvidence::create([
-                    'test_execution_id' => $execution->id,
-                    'file_name' => basename($path),
-                    'original_name' => $origName,
-                    'file_path' => $path,
-                    'mime_type' => $file->getClientMimeType(),
-                    'file_size' => $file->getSize(),
-                    'uploaded_by' => $user->id,
-                ]);
+                    TestExecutionEvidence::create([
+                        'test_execution_id' => $execution->id,
+                        'file_name' => basename($path),
+                        'original_name' => $origName,
+                        'file_path' => $path,
+                        'mime_type' => $file->getClientMimeType(),
+                        'file_size' => $file->getSize(),
+                        'uploaded_by' => $user->id,
+                    ]);
+                }
             }
-        }
+
+            return $execution;
+        });
 
         ActivityLog::record(
             'test_executed',
@@ -590,6 +655,39 @@ class TestCaseController extends Controller
             'message' => "Berhasil mengimpor {$importedCount} Test Case dari file Excel.",
             'imported_count' => $importedCount,
         ]);
+    }
+
+    /**
+     * Hubungkan test case ke jadwal QA yang cakupannya memuat submenu test case.
+     * Jadwal yang sudah selesai/terkunci tidak ditawarkan sebagai tautan baru.
+     *
+     * @param  array<int, int>  $scheduleIds
+     */
+    private function syncScheduleLinks(TestCase $testCase, array $scheduleIds): void
+    {
+        $schedules = QaSchedule::query()
+            ->whereIn('id', $scheduleIds)
+            ->with('menus')
+            ->get();
+
+        $invalid = $schedules->first(function (QaSchedule $schedule) use ($testCase): bool {
+            if (in_array($schedule->status, ['Completed', 'Cancelled'], true)) {
+                return true;
+            }
+
+            $covered = $schedule->coveredTestCaseIds();
+
+            return ! $covered->contains($testCase->id)
+                && ($testCase->menu_id === null || ! $schedule->coversMenu((int) $testCase->menu_id));
+        });
+
+        if ($invalid !== null) {
+            throw ValidationException::withMessages([
+                'qa_schedule_ids' => ["Jadwal QA {$invalid->schedule_code} tidak mencakup submenu test case ini."],
+            ]);
+        }
+
+        $testCase->schedules()->sync($scheduleIds);
     }
 
     private function expiredScheduleForImportRows(

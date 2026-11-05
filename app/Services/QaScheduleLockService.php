@@ -68,10 +68,10 @@ class QaScheduleLockService
     /**
      * @return array{locked: bool, mode: string, schedule_code: ?string, unlock_at: ?string, waiting_for_schedule: bool}
      */
-    public function statusForModule(int $moduleId): array
+    public function statusForModule(int $moduleId, ?int $menuId = null): array
     {
         $settings = $this->settings();
-        $lockedSchedule = $this->expiredScheduleForModuleMenu($moduleId, null);
+        $lockedSchedule = $this->expiredScheduleForModuleMenu($moduleId, $menuId);
         $unlockAt = null;
         $waitingForSchedule = false;
 
@@ -81,12 +81,24 @@ class QaScheduleLockService
                 ->addMinutes($settings->qa_lock_minutes)
                 ->toIso8601String();
         } elseif ($lockedSchedule !== null) {
-            $nextSchedule = QaSchedule::query()
-                ->where('module_id', $moduleId)
+            $nextScheduleQuery = QaSchedule::query()
                 ->whereIn('status', ['Scheduled', 'In Progress'])
-                ->where('start_time', '>', now())
-                ->orderBy('start_time')
-                ->first(['start_time']);
+                ->where('start_time', '>', now());
+
+            if ($menuId !== null) {
+                $nextScheduleQuery->where(function (Builder $query) use ($moduleId, $menuId): void {
+                    $query->where(function (Builder $coverage) use ($menuId): void {
+                        $coverage->where('menu_id', $menuId)
+                            ->orWhereHas('menus', fn (Builder $menus) => $menus->whereKey($menuId));
+                    })->orWhere(function (Builder $legacy) use ($moduleId): void {
+                        $legacy->where('module_id', $moduleId)->whereDoesntHave('menus');
+                    });
+                });
+            } else {
+                $nextScheduleQuery->where('module_id', $moduleId);
+            }
+
+            $nextSchedule = $nextScheduleQuery->orderBy('start_time')->first(['start_time']);
             $unlockAt = $nextSchedule?->start_time?->toIso8601String();
             $waitingForSchedule = $unlockAt === null;
         }
@@ -152,23 +164,24 @@ class QaScheduleLockService
         $moduleIds = array_unique(array_map('intval', array_filter([$moduleId, $testCase?->module_id])));
         foreach ($moduleIds as $contextModuleId) {
             $expiredSchedules[] = $this->expiredScheduleForScope(
-                fn (Builder $query) => $query->where('module_id', $contextModuleId),
+                fn (Builder $query) => $query
+                    ->where('module_id', $contextModuleId)
+                    ->whereDoesntHave('menus'),
             );
         }
 
         $menuIds = array_unique(array_map('intval', array_filter([$menuId, $testCase?->menu_id])));
         foreach ($menuIds as $contextMenuId) {
-            $expiredSchedules[] = $this->expiredScheduleForScope(
-                fn (Builder $query) => $query->where('menu_id', $contextMenuId),
-            );
+            $expiredSchedules[] = $this->expiredScheduleForMenuCoverage($contextMenuId);
         }
 
         if ($scheduleId !== null) {
             $schedule = QaSchedule::query()->find($scheduleId);
             $scheduleMatchesContext = $schedule !== null
                 && (
-                    ($schedule->module_id !== null && in_array((int) $schedule->module_id, $moduleIds, true))
+                    ($schedule->module_id !== null && in_array((int) $schedule->module_id, $moduleIds, true) && $schedule->menus->isEmpty())
                     || ($schedule->menu_id !== null && in_array((int) $schedule->menu_id, $menuIds, true))
+                    || collect($menuIds)->contains(fn (int $contextMenuId): bool => $schedule->coversMenu($contextMenuId))
                     || ($testCaseId !== null && $schedule->testCases()->whereKey($testCaseId)->exists())
                 );
 
@@ -212,62 +225,106 @@ class QaScheduleLockService
         return TestCase::query()
             ->where(function (Builder $query): void {
                 $query->whereHas('schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('module.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules));
+                    ->orWhereHas('module.schedules', function (Builder $schedules): void {
+                        $this->whereExpired($schedules);
+                        $schedules->whereDoesntHave('menus');
+                    })
+                    ->orWhereHas('menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
+                    ->orWhereHas('menu.qaSchedules', fn (Builder $schedules) => $this->whereExpired($schedules));
             })
             ->whereDoesntHave('schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('module.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules));
+            ->whereDoesntHave('module.schedules', function (Builder $schedules): void {
+                $this->whereActive($schedules);
+                $schedules->whereDoesntHave('menus');
+            })
+            ->whereDoesntHave('menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
+            ->whereDoesntHave('menu.qaSchedules', fn (Builder $schedules) => $this->whereActive($schedules));
     }
 
     private function lockedBugsQuery(): Builder
     {
+        $legacyModuleSchedules = function (Builder $schedules): void {
+            $this->whereExpired($schedules);
+            $schedules->whereDoesntHave('menus');
+        };
+        $legacyModuleSchedulesActive = function (Builder $schedules): void {
+            $this->whereActive($schedules);
+            $schedules->whereDoesntHave('menus');
+        };
+
         return Bug::query()
-            ->where(function (Builder $query): void {
+            ->where(function (Builder $query) use ($legacyModuleSchedules): void {
                 $query->whereHas('schedule', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('module.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
+                    ->orWhereHas('module.schedules', $legacyModuleSchedules)
                     ->orWhereHas('menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
+                    ->orWhereHas('menu.qaSchedules', fn (Builder $schedules) => $this->whereExpired($schedules))
                     ->orWhereHas('testCase.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('testCase.module.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('testCase.menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules));
+                    ->orWhereHas('testCase.module.schedules', $legacyModuleSchedules)
+                    ->orWhereHas('testCase.menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
+                    ->orWhereHas('testCase.menu.qaSchedules', fn (Builder $schedules) => $this->whereExpired($schedules));
             })
             ->whereDoesntHave('schedule', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('module.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
+            ->whereDoesntHave('module.schedules', $legacyModuleSchedulesActive)
             ->whereDoesntHave('menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
+            ->whereDoesntHave('menu.qaSchedules', fn (Builder $schedules) => $this->whereActive($schedules))
             ->whereDoesntHave('testCase.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('testCase.module.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('testCase.menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules));
+            ->whereDoesntHave('testCase.module.schedules', $legacyModuleSchedulesActive)
+            ->whereDoesntHave('testCase.menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
+            ->whereDoesntHave('testCase.menu.qaSchedules', fn (Builder $schedules) => $this->whereActive($schedules));
     }
 
     private function lockedRetestsQuery(): Builder
     {
+        $legacyModuleSchedules = function (Builder $schedules): void {
+            $this->whereExpired($schedules);
+            $schedules->whereDoesntHave('menus');
+        };
+        $legacyModuleSchedulesActive = function (Builder $schedules): void {
+            $this->whereActive($schedules);
+            $schedules->whereDoesntHave('menus');
+        };
+        $expiredSchedules = function (Builder $schedules): void {
+            $this->whereExpired($schedules);
+        };
+        $activeSchedules = function (Builder $schedules): void {
+            $this->whereActive($schedules);
+        };
+
         return Retest::query()
-            ->where(function (Builder $query): void {
-                $query->whereHas('schedule', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('module.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('testCase.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('testCase.module.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('testCase.menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('bug.schedule', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('bug.module.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('bug.menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('bug.testCase.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('bug.testCase.module.schedules', fn (Builder $schedules) => $this->whereExpired($schedules))
-                    ->orWhereHas('bug.testCase.menu.schedules', fn (Builder $schedules) => $this->whereExpired($schedules));
+            ->where(function (Builder $query) use ($legacyModuleSchedules, $expiredSchedules): void {
+                $query->whereHas('schedule', $expiredSchedules)
+                    ->orWhereHas('module.schedules', $legacyModuleSchedules)
+                    ->orWhereHas('menu.schedules', $expiredSchedules)
+                    ->orWhereHas('menu.qaSchedules', $expiredSchedules)
+                    ->orWhereHas('testCase.schedules', $expiredSchedules)
+                    ->orWhereHas('testCase.module.schedules', $legacyModuleSchedules)
+                    ->orWhereHas('testCase.menu.schedules', $expiredSchedules)
+                    ->orWhereHas('testCase.menu.qaSchedules', $expiredSchedules)
+                    ->orWhereHas('bug.schedule', $expiredSchedules)
+                    ->orWhereHas('bug.module.schedules', $legacyModuleSchedules)
+                    ->orWhereHas('bug.menu.schedules', $expiredSchedules)
+                    ->orWhereHas('bug.menu.qaSchedules', $expiredSchedules)
+                    ->orWhereHas('bug.testCase.schedules', $expiredSchedules)
+                    ->orWhereHas('bug.testCase.module.schedules', $legacyModuleSchedules)
+                    ->orWhereHas('bug.testCase.menu.schedules', $expiredSchedules)
+                    ->orWhereHas('bug.testCase.menu.qaSchedules', $expiredSchedules);
             })
-            ->whereDoesntHave('schedule', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('module.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('testCase.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('testCase.module.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('testCase.menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('bug.schedule', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('bug.module.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('bug.menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('bug.testCase.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('bug.testCase.module.schedules', fn (Builder $schedules) => $this->whereActive($schedules))
-            ->whereDoesntHave('bug.testCase.menu.schedules', fn (Builder $schedules) => $this->whereActive($schedules));
+            ->whereDoesntHave('schedule', $activeSchedules)
+            ->whereDoesntHave('module.schedules', $legacyModuleSchedulesActive)
+            ->whereDoesntHave('menu.schedules', $activeSchedules)
+            ->whereDoesntHave('menu.qaSchedules', $activeSchedules)
+            ->whereDoesntHave('testCase.schedules', $activeSchedules)
+            ->whereDoesntHave('testCase.module.schedules', $legacyModuleSchedulesActive)
+            ->whereDoesntHave('testCase.menu.schedules', $activeSchedules)
+            ->whereDoesntHave('testCase.menu.qaSchedules', $activeSchedules)
+            ->whereDoesntHave('bug.schedule', $activeSchedules)
+            ->whereDoesntHave('bug.module.schedules', $legacyModuleSchedulesActive)
+            ->whereDoesntHave('bug.menu.schedules', $activeSchedules)
+            ->whereDoesntHave('bug.menu.qaSchedules', $activeSchedules)
+            ->whereDoesntHave('bug.testCase.schedules', $activeSchedules)
+            ->whereDoesntHave('bug.testCase.module.schedules', $legacyModuleSchedulesActive)
+            ->whereDoesntHave('bug.testCase.menu.schedules', $activeSchedules)
+            ->whereDoesntHave('bug.testCase.menu.qaSchedules', $activeSchedules);
     }
 
     private function whereExpired(Builder $query): void
@@ -305,6 +362,30 @@ class QaScheduleLockService
             ->where('end_time', '>=', $settings->qa_lock_mode === 'grace_then_lock'
                 ? now()->subMinutes($settings->qa_lock_minutes)
                 : now());
+    }
+
+    /**
+     * Evaluasi penguncian untuk satu submenu berdasarkan seluruh jadwal
+     * yang mencakup submenu tersebut — baik lewat kolom menu_id warisan
+     * maupun snapshot pivot qa_schedule_menus.
+     */
+    private function expiredScheduleForMenuCoverage(int $menuId): ?QaSchedule
+    {
+        $schedules = QaSchedule::query()
+            ->where('status', '!=', 'Cancelled')
+            ->where(function (Builder $query) use ($menuId): void {
+                $query->where('menu_id', $menuId)
+                    ->orWhereHas('menus', fn (Builder $menus) => $menus->whereKey($menuId));
+            });
+
+        if ((clone $schedules)->where(fn (Builder $query) => $this->whereActive($query))->exists()) {
+            return null;
+        }
+
+        return (clone $schedules)
+            ->where(fn (Builder $query) => $this->whereExpired($query))
+            ->orderByDesc('end_time')
+            ->first();
     }
 
     private function expiredScheduleForScope(Closure $scope): ?QaSchedule
