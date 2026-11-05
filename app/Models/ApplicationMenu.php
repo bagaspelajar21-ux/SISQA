@@ -50,9 +50,4 @@ class ApplicationMenu extends Model
     {
         return $this->hasMany(QaSchedule::class, 'menu_id');
     }
-
-    public function qaSchedules()
-    {
-        return $this->belongsToMany(QaSchedule::class, 'qa_schedule_menus', 'menu_id', 'qa_schedule_id');
-    }
 }

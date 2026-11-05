@@ -131,9 +131,7 @@ class ReminderDeliveryService
         $scheduledMinutes = ($hour * 60) + $minute;
         $currentMinutes = ((int) $localNow->format('G') * 60) + (int) $localNow->format('i');
 
-        // Catch-up: selama masih di hari yang sama (WIB), jadwal yang terlewat
-        // tetap dikirim sekali. Dedup harian dijamin event_key dispatches.
-        return $currentMinutes >= $scheduledMinutes;
+        return $currentMinutes >= $scheduledMinutes && $currentMinutes - $scheduledMinutes <= 5;
     }
 
     public function dispatchAdminReminder(int $reminderId): bool
@@ -175,10 +173,7 @@ class ReminderDeliveryService
     private function dispatchDueScheduleNotifications(): void
     {
         QaSchedule::query()
-            ->where(function ($query): void {
-                $query->whereNotNull('tester_id')
-                    ->orWhereHas('testers');
-            })
+            ->whereNotNull('tester_id')
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->where(function ($query): void {
                 $query->where(function ($startQuery): void {
@@ -189,26 +184,15 @@ class ReminderDeliveryService
                         ->where('end_time', '<', now());
                 });
             })
-            ->with(['tester', 'testers'])
+            ->with('tester')
             ->orderBy('id')
             ->chunkById(100, function ($schedules): void {
                 foreach ($schedules as $schedule) {
                     DB::transaction(function () use ($schedule): void {
                         $lockedSchedule = QaSchedule::query()->lockForUpdate()->find($schedule->id);
+                        $tester = $lockedSchedule?->tester;
 
-                        if ($lockedSchedule === null) {
-                            return;
-                        }
-
-                        // Semua tester tertugaskan: pivot multi-user + tester_id warisan.
-                        $recipients = $lockedSchedule->testers
-                            ->push($lockedSchedule->tester)
-                            ->filter()
-                            ->unique('id')
-                            ->filter(fn (User $user) => $user->is_active)
-                            ->values();
-
-                        if ($recipients->isEmpty()) {
+                        if ($lockedSchedule === null || $tester === null || ! $tester->is_active) {
                             return;
                         }
 
@@ -217,11 +201,11 @@ class ReminderDeliveryService
                             && $lockedSchedule->start_time->lessThanOrEqualTo(now())
                             && ! in_array($lockedSchedule->status, ['Completed', 'Cancelled'], true)
                         ) {
-                            $recipients->each(fn (User $user) => $user->notify(new QaReminderNotification(
+                            $tester->notify(new QaReminderNotification(
                                 'Waktunya memulai QA',
                                 "Jadwal {$lockedSchedule->schedule_code} - {$lockedSchedule->title} sudah dimulai.",
                                 '/schedules',
-                            )));
+                            ));
                             $lockedSchedule->start_notification_sent_at = now();
                         }
 
@@ -230,11 +214,11 @@ class ReminderDeliveryService
                             && $lockedSchedule->end_time->lessThan(now())
                             && ! in_array($lockedSchedule->status, ['Completed', 'Cancelled'], true)
                         ) {
-                            $recipients->each(fn (User $user) => $user->notify(new QaReminderNotification(
+                            $tester->notify(new QaReminderNotification(
                                 'Waktu QA telah berakhir',
                                 "Jadwal {$lockedSchedule->schedule_code} - {$lockedSchedule->title} telah melewati waktu yang ditentukan. Aktivitas QA terkait terkunci untuk user.",
                                 '/schedules',
-                            )));
+                            ));
                             $lockedSchedule->end_notification_sent_at = now();
                             if (! in_array($lockedSchedule->status, ['Completed', 'Cancelled', 'Overdue'], true)) {
                                 $lockedSchedule->status = 'Overdue';

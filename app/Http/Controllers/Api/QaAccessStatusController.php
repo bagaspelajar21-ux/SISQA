@@ -18,18 +18,10 @@ class QaAccessStatusController extends Controller
                 'integer',
                 Rule::exists('application_modules', 'id')->whereNull('deleted_at'),
             ],
-            'menu_id' => [
-                'nullable',
-                'integer',
-                Rule::exists('application_menus', 'id')->whereNull('deleted_at'),
-            ],
         ]);
 
         return response()->json([
-            'status' => $scheduleLock->statusForModule(
-                (int) $validated['module_id'],
-                isset($validated['menu_id']) ? (int) $validated['menu_id'] : null,
-            ),
+            'status' => $scheduleLock->statusForModule((int) $validated['module_id']),
         ]);
     }
 }
