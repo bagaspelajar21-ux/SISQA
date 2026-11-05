@@ -124,7 +124,6 @@
           ></textarea>
           <span class="mt-2 block font-normal leading-relaxed text-slate-500">
             Satu kutipan per baris, maksimal 100 kutipan dan 500 karakter per kutipan.
-            Opsional: tambahkan <code class="rounded bg-amber-100 px-1 font-mono text-[11px]"> | Nama Penulis</code> di akhir baris untuk menampilkan atribusi.
           </span>
         </label>
       </section>
@@ -174,11 +173,7 @@ const loadSettings = async () => {
   try {
     const response = await api.get('/admin/qa-settings');
     Object.assign(settings, response.data.settings);
-    quotesText.value = (settings.daily_motivations || [])
-      .map((quote) => (typeof quote === 'string'
-        ? quote
-        : [quote.text, quote.author].filter(Boolean).join(' | ')))
-      .join('\n');
+    quotesText.value = (settings.daily_motivations || []).join('\n');
     imagePreview.value = settings.daily_motivation_image_path
       ? `/storage/${settings.daily_motivation_image_path.replace(/^\/+/, '')}`
       : '';
@@ -254,11 +249,7 @@ const saveSettings = async () => {
       daily_motivations: quotes,
     });
     Object.assign(settings, response.data.settings);
-    quotesText.value = (settings.daily_motivations || [])
-      .map((quote) => (typeof quote === 'string'
-        ? quote
-        : [quote.text, quote.author].filter(Boolean).join(' | ')))
-      .join('\n');
+    quotesText.value = settings.daily_motivations.join('\n');
     successMessage.value = response.data.message;
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Pengaturan QA gagal disimpan.';

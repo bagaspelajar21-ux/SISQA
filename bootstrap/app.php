@@ -22,7 +22,6 @@ $app = Application::configure(basePath: dirname(__DIR__))
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(at: '*');
-        $middleware->redirectGuestsTo('/login');
         $middleware->alias([
             'admin' => EnsureUserIsAdmin::class,
             'permission' => EnsureUserHasMenuAccess::class,
@@ -30,7 +29,7 @@ $app = Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request, Throwable $exception): bool => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
     })->create();
 

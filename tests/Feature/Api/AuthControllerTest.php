@@ -135,11 +135,4 @@ class AuthControllerTest extends TestCase
 
         Storage::disk('public')->assertDirectoryEmpty('profile-photos');
     }
-
-    public function test_api_requests_without_authentication_return_json_without_an_accept_header(): void
-    {
-        $this->get('/api/schedules')
-            ->assertUnauthorized()
-            ->assertJsonPath('message', 'Unauthenticated.');
-    }
 }

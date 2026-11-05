@@ -101,7 +101,6 @@
               <th class="py-3 px-4">Kategori & Versi</th>
               <th class="py-3 px-4">Publikasi</th>
               <th class="py-3 px-4">Status Pengamatan</th>
-              <th class="py-3 px-4">Akses Role</th>
               <th class="py-3 px-4">Admin Pengamat Terakhir</th>
               <th class="py-3 px-4 text-right">Aksi</th>
             </tr>
@@ -121,21 +120,6 @@
               </td>
               <td class="py-3.5 px-4">
                 <Badge :value="g.observation_status" />
-              </td>
-              <td class="py-3.5 px-4">
-                <span
-                  v-if="g.menu_path"
-                  :class="[
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border',
-                    hasMenuAccess(g.menu_path)
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-slate-50 text-slate-400 border-slate-200',
-                  ]"
-                  :title="hasMenuAccess(g.menu_path) ? 'Menu ini aktif untuk role Anda' : 'Menu ini nonaktif untuk role Anda'"
-                >
-                  {{ hasMenuAccess(g.menu_path) ? '✓ Aktif' : '✗ Nonaktif' }}
-                </span>
-                <span v-else class="text-slate-300 text-[10px] italic">—</span>
               </td>
               <td class="py-3.5 px-4 text-slate-600">
                 <div v-if="g.last_observer" class="font-medium text-slate-800">
@@ -205,13 +189,6 @@
           <div>
             <label class="block font-bold text-slate-700 mb-1">Nama Menu Terkait <span class="text-red-500">*</span></label>
             <input v-model="form.menu_name" required type="text" placeholder="Contoh: Test Case & Eksekusi" class="w-full py-2 px-3 border border-slate-300 rounded-lg" />
-          </div>
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Menu Route (untuk ceklis akses role)</label>
-            <select v-model="form.menu_path" class="w-full py-2 px-3 border border-slate-300 rounded-lg">
-              <option value="">— Tidak dikaitkan —</option>
-              <option v-for="opt in menuPathOptions" :key="opt.path" :value="opt.path">{{ opt.label }}</option>
-            </select>
           </div>
           <div>
             <label class="block font-bold text-slate-700 mb-1">Kategori</label>
@@ -390,30 +367,7 @@ import EmptyState from '../components/EmptyState.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
 
-const { isAdmin, hasMenuAccess } = useAuth();
-
-// Daftar route menu yang dapat dikaitkan ke panduan untuk ceklis akses role.
-const menuPathOptions = [
-  { path: '/', label: '📊 Dashboard QA' },
-  { path: '/schedules', label: '📅 Jadwal QA' },
-  { path: '/test-cases', label: '📝 Test Management' },
-  { path: '/bugs', label: '🐞 Bug Tracking' },
-  { path: '/retests', label: '🔄 Retesting' },
-  { path: '/flows', label: '🔀 Flow Aplikasi' },
-  { path: '/guides', label: '📖 Panduan SISQA' },
-  { path: '/reports', label: '📑 QA Report' },
-  { path: '/reports/wa', label: '💬 Report WA' },
-  { path: '/reports/weekly', label: '📆 Report Mingguan' },
-  { path: '/activity-logs', label: '⏱️ Activity Logs' },
-  { path: '/master/apps', label: '🗂️ Master Aplikasi' },
-  { path: '/master/modules', label: '🧩 Master Modul' },
-  { path: '/master/menus', label: '📌 Master Menu' },
-  { path: '/users', label: '👥 Manajemen Pengguna' },
-  { path: '/admin/work-analysis', label: '📈 Analisis Pekerjaan' },
-  { path: '/admin/reminders', label: '🔔 Pengingat & Notifikasi' },
-  { path: '/admin/qa-settings', label: '⚙️ Pengaturan QA & Motivasi' },
-  { path: '/profile', label: '👤 Profil Saya' },
-];
+const { isAdmin } = useAuth();
 
 const loading = ref(false);
 const guides = ref([]);
@@ -433,7 +387,6 @@ const currentId = ref(null);
 const form = reactive({
   title: '',
   menu_name: '',
-  menu_path: '',
   category: 'Operasional QA',
   version: '1.0',
   status: 'Published',
@@ -489,7 +442,6 @@ const openCreateModal = () => {
   currentId.value = null;
   form.title = '';
   form.menu_name = '';
-  form.menu_path = '';
   form.category = 'Operasional QA';
   form.version = '1.0';
   form.status = 'Published';
@@ -512,7 +464,6 @@ const openEditModal = async (g) => {
     currentId.value = detail.id;
     form.title = detail.title;
     form.menu_name = detail.menu_name;
-    form.menu_path = detail.menu_path || '';
     form.category = detail.category || 'Operasional QA';
     form.version = detail.version || '1.0';
     form.status = detail.status || 'Published';

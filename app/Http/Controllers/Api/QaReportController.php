@@ -15,8 +15,8 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -198,10 +198,7 @@ class QaReportController extends Controller
             $schQuery->where('module_id', $moduleId);
         }
         if ($testerId) {
-            $schQuery->where(function ($q) use ($testerId) {
-                $q->where('tester_id', $testerId)
-                    ->orWhereHas('testers', fn ($testerQuery) => $testerQuery->whereKey($testerId));
-            });
+            $schQuery->where('tester_id', $testerId);
         }
         if ($startDate || $endDate) {
             $schQuery->overlappingDateRange($startDate, $endDate);

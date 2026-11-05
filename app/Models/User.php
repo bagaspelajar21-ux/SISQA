@@ -68,11 +68,6 @@ class User extends Authenticatable
         return $this->hasMany(QaSchedule::class, 'tester_id');
     }
 
-    public function assignedQaSchedules()
-    {
-        return $this->belongsToMany(QaSchedule::class, 'qa_schedule_testers', 'user_id', 'qa_schedule_id');
-    }
-
     public function testExecutions()
     {
         return $this->hasMany(TestExecution::class, 'tester_id');

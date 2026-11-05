@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class AdminQaSettingsController extends Controller
@@ -42,9 +41,8 @@ class AdminQaSettingsController extends Controller
             ],
             'daily_motivation_enabled' => ['required', 'boolean'],
             'daily_motivations' => ['required', 'array', 'min:1', 'max:100'],
-            'daily_motivations.*' => ['required'],
+            'daily_motivations.*' => ['required', 'string', 'min:3', 'max:500'],
         ]);
-        $validated['daily_motivations'] = $this->normalizeMotivations($validated['daily_motivations']);
         if ($validated['qa_lock_mode'] === 'lock_for_duration' && $validated['qa_lock_minutes'] < 1) {
             return response()->json([
                 'message' => 'Durasi penguncian otomatis harus minimal 1 menit.',
@@ -119,53 +117,5 @@ class AdminQaSettingsController extends Controller
         return response()->json([
             'message' => 'Desain motivasi berhasil dihapus.',
         ]);
-    }
-
-    /**
-     * Normalisasi entri motivasi menjadi {text, author?}. Menerima string
-     * polos, string dengan sufiks " | Penulis", atau objek {text, author}.
-     *
-     * @param  array<int, mixed>  $entries
-     * @return array<int, array{text: string, author: ?string}>
-     */
-    private function normalizeMotivations(array $entries): array
-    {
-        $normalized = [];
-        $errors = [];
-
-        foreach ($entries as $index => $entry) {
-            $text = null;
-            $author = null;
-
-            if (is_string($entry)) {
-                $entry = trim($entry);
-                // Format "kutipan | Penulis" — pisahkan pada pemisah '|' terakhir.
-                if (str_contains($entry, '|')) {
-                    [$text, $author] = array_map('trim', explode('|', $entry, 2) + [1 => '']);
-                    $author = $author !== '' ? mb_substr($author, 0, 120) : null;
-                } else {
-                    $text = $entry;
-                }
-            } elseif (is_array($entry)) {
-                $text = trim((string) ($entry['text'] ?? ''));
-                $author = isset($entry['author']) ? trim((string) $entry['author']) : null;
-                $author = $author !== '' ? mb_substr($author, 0, 120) : null;
-            }
-
-            $text = is_string($text) ? trim($text) : '';
-            if (mb_strlen($text) < 3 || mb_strlen($text) > 500) {
-                $errors["daily_motivations.{$index}"] = ['Teks motivasi harus 3-500 karakter.'];
-
-                continue;
-            }
-
-            $normalized[] = ['text' => $text, 'author' => $author];
-        }
-
-        if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
-        }
-
-        return $normalized;
     }
 }

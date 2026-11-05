@@ -9,7 +9,6 @@ use App\Models\User;
 use App\Services\ReminderDeliveryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class AdminReminderController extends Controller
@@ -45,36 +44,6 @@ class AdminReminderController extends Controller
             'settings' => $settings->fresh(),
             'timezone' => 'Asia/Jakarta',
         ]);
-    }
-
-    /**
-     * Riwayat pengiriman pengingat otomatis (event_key -> label + waktu).
-     */
-    public function automatedDispatches(): JsonResponse
-    {
-        $labels = [
-            'qa' => 'Pengingat mulai QA',
-            'daily-report' => 'Pengingat report harian',
-            'weekly-report' => 'Pengingat report mingguan',
-            'monthly-report' => 'Pengingat report bulanan',
-        ];
-
-        $dispatches = DB::table('automated_reminder_dispatches')
-            ->orderByDesc('dispatched_at')
-            ->limit(30)
-            ->get()
-            ->map(function ($row) use ($labels): array {
-                [$type, $date] = array_pad(explode(':', $row->event_key, 2), 2, '');
-
-                return [
-                    'event_key' => $row->event_key,
-                    'label' => $labels[$type] ?? $row->event_key,
-                    'date' => $date,
-                    'dispatched_at' => $row->dispatched_at,
-                ];
-            });
-
-        return response()->json(['dispatches' => $dispatches]);
     }
 
     public function index(): JsonResponse
