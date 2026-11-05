@@ -219,6 +219,33 @@
       </div>
     </section>
 
+    <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div>
+          <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-900">Riwayat pengiriman otomatis</h3>
+          <p class="mt-1 text-[10px] text-slate-500">30 pengiriman terakhir oleh scheduler harian (WIB). Kosong berarti reminder belum pernah terkirim.</p>
+        </div>
+        <button type="button" @click="fetchDispatches" class="cursor-pointer rounded-xl border border-slate-200 px-3 py-2 text-[10px] font-bold text-slate-600 transition-colors hover:bg-slate-50">
+          Muat ulang
+        </button>
+      </div>
+      <div v-if="dispatches.length === 0" class="py-6 text-center text-xs text-slate-400">
+        Belum ada pengiriman otomatis tercatat.
+      </div>
+      <div v-else class="mt-3 divide-y divide-slate-100">
+        <div v-for="d in dispatches" :key="d.event_key" class="flex items-center justify-between py-2.5 text-xs">
+          <div class="flex items-center space-x-2.5">
+            <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">✓</span>
+            <div>
+              <div class="font-bold text-slate-800">{{ d.label }}</div>
+              <div class="text-[10px] text-slate-400 font-mono">{{ d.event_key }}</div>
+            </div>
+          </div>
+          <span class="text-[11px] font-semibold text-slate-500">{{ formatDateTime(d.dispatched_at) }}</span>
+        </div>
+      </div>
+    </section>
+
     <section class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
       <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
         <div>
@@ -306,6 +333,7 @@ const form = reactive({
 
 const users = ref([]);
 const reminders = ref([]);
+const dispatches = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const errorMessage = ref('');
@@ -343,6 +371,13 @@ const fetchReminders = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const fetchDispatches = async () => {
+  try {
+    const response = await api.get('/admin/reminders/automated-dispatches');
+    dispatches.value = response.data.dispatches || [];
+  } catch (error) {}
 };
 
 const fetchRecipients = async () => {
@@ -440,5 +475,6 @@ onMounted(() => {
   fetchRecipients();
   fetchReminders();
   fetchAutomatedSettings();
+  fetchDispatches();
 });
 </script>

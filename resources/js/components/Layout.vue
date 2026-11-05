@@ -629,15 +629,21 @@
                 class="max-h-72 w-full bg-blue-50 object-cover sm:max-h-80"
               />
               <div class="px-6 py-7 sm:px-10 sm:py-9">
-                <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-3xl text-blue-700">
+                <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-orange-400 text-3xl text-white shadow-md">
                   “
                 </div>
                 <p class="text-lg font-extrabold leading-relaxed sm:text-2xl">
                   {{ dailyMotivation.message }}
                 </p>
-                <p class="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-blue-700/70 sm:text-sm">
-                  {{ dailyMotivation.date }}
+                <p v-if="dailyMotivation.author" class="mt-4 text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+                  — {{ dailyMotivation.author }}
                 </p>
+                <div class="mt-5 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700/70 sm:text-xs">
+                  <span>{{ dailyMotivation.date }}</span>
+                  <span v-if="dailyMotivation.quoteTotal > 1" class="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700">
+                    Kutipan {{ (dailyMotivation.quoteIndex ?? 0) + 1 }}/{{ dailyMotivation.quoteTotal }}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -683,7 +689,7 @@ const masterDropdownOpen = ref(true);
 const showGuideModal = ref(false);
 const showLogoutConfirm = ref(false);
 const showDailyMotivation = ref(false);
-const dailyMotivation = ref({ message: '', date: '', imageUrl: null });
+const dailyMotivation = ref({ message: '', author: null, quoteIndex: null, quoteTotal: 0, date: '', imageUrl: null });
 const dbGuide = ref(null);
 
 const toggleSidebar = () => {
@@ -1220,6 +1226,9 @@ const fetchDailyMotivation = async () => {
 
     dailyMotivation.value = {
       message: response.data.motivation,
+      author: response.data.author || null,
+      quoteIndex: response.data.quote_index,
+      quoteTotal: response.data.quote_total || 0,
       imageUrl: response.data.image_url,
       date: new Date(`${response.data.date}T00:00:00+07:00`).toLocaleDateString('id-ID', {
         timeZone: 'Asia/Jakarta',

@@ -47,7 +47,8 @@ class AdminQaSettingsControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('settings.qa_lock_mode', 'lock_for_duration')
             ->assertJsonPath('settings.qa_lock_minutes', 15)
-            ->assertJsonPath('settings.daily_motivations.1', 'Setiap temuan bug membantu produk lebih baik.');
+            ->assertJsonPath('settings.daily_motivations.1.text', 'Setiap temuan bug membantu produk lebih baik.')
+            ->assertJsonPath('settings.daily_motivations.1.author', null);
 
         $this->assertSame('lock_for_duration', AutomatedReminderSetting::current()->qa_lock_mode);
         $this->assertSame(15, AutomatedReminderSetting::current()->qa_lock_minutes);
@@ -150,6 +151,48 @@ class AdminQaSettingsControllerTest extends TestCase
             ->json('motivation');
 
         $this->assertNotSame($firstDay, $secondDay);
+    }
+
+    public function test_daily_motivation_supports_author_attribution(): void
+    {
+        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
+
+        $this->putJson('/api/admin/qa-settings', [
+            'qa_lock_mode' => 'grace_then_lock',
+            'qa_lock_minutes' => 0,
+            'daily_motivation_enabled' => true,
+            'daily_motivations' => [
+                'Kualitas adalah tanggung jawab bersama. | Tim QA',
+                ['text' => 'Detail kecil, dampak besar.', 'author' => 'QA Lead'],
+            ],
+        ])->assertOk();
+
+        $settings = AutomatedReminderSetting::current();
+        $this->assertSame('Tim QA', $settings->daily_motivations[0]['author']);
+        $this->assertSame('Kualitas adalah tanggung jawab bersama.', $settings->daily_motivations[0]['text']);
+        $this->assertSame('QA Lead', $settings->daily_motivations[1]['author']);
+
+        Sanctum::actingAs(User::factory()->create());
+        $response = $this->getJson('/api/daily-motivation/today')->assertOk();
+        $this->assertContains($response->json('motivation'), [
+            'Kualitas adalah tanggung jawab bersama.',
+            'Detail kecil, dampak besar.',
+        ]);
+        $this->assertNotNull($response->json('author'));
+        $this->assertSame(2, $response->json('quote_total'));
+    }
+
+    public function test_daily_motivation_rejects_too_short_quote_text(): void
+    {
+        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
+
+        $this->putJson('/api/admin/qa-settings', [
+            'qa_lock_mode' => 'grace_then_lock',
+            'qa_lock_minutes' => 0,
+            'daily_motivation_enabled' => true,
+            'daily_motivations' => ['ab'],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('daily_motivations.0');
     }
 
     public function test_daily_motivation_can_be_disabled_by_an_admin(): void

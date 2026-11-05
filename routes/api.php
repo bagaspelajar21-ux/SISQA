@@ -120,6 +120,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/reminders', [AdminReminderController::class, 'index']);
         Route::get('/admin/reminders/recipients', [AdminReminderController::class, 'recipients']);
         Route::get('/admin/reminders/automated-settings', [AdminReminderController::class, 'automatedSettings']);
+        Route::get('/admin/reminders/automated-dispatches', [AdminReminderController::class, 'automatedDispatches']);
         Route::put('/admin/reminders/automated-settings', [AdminReminderController::class, 'updateAutomatedSettings']);
         Route::post('/admin/reminders', [AdminReminderController::class, 'store']);
         Route::delete('/admin/reminders/{reminder}', [AdminReminderController::class, 'destroy']);
