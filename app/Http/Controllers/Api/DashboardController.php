@@ -71,7 +71,14 @@ class DashboardController extends Controller
                         $sub->select('qst.test_case_id')
                             ->from('qa_schedule_test_cases as qst')
                             ->join('qa_schedules as qs', 'qs.id', '=', 'qst.qa_schedule_id')
-                            ->where('qs.tester_id', $testerId);
+                            ->where(function ($q) use ($testerId) {
+                                $q->where('qs.tester_id', $testerId)
+                                    ->orWhereIn('qs.id', function ($testerSub) use ($testerId) {
+                                        $testerSub->select('qa_schedule_id')
+                                            ->from('qa_schedule_testers')
+                                            ->where('user_id', $testerId);
+                                    });
+                            });
                     });
             });
         }
@@ -143,7 +150,10 @@ class DashboardController extends Controller
             $schQuery->where('menu_id', $menuId);
         }
         if ($testerId) {
-            $schQuery->where('tester_id', $testerId);
+            $schQuery->where(function ($q) use ($testerId) {
+                $q->where('tester_id', $testerId)
+                    ->orWhereHas('testers', fn ($testerQuery) => $testerQuery->whereKey($testerId));
+            });
         }
         if ($startDate || $endDate) {
             $schQuery->overlappingDateRange($startDate, $endDate);

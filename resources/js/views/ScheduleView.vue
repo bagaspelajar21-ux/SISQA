@@ -177,7 +177,7 @@
       </div>
 
       <div v-else class="overflow-x-auto">
-        <table class="w-full text-left border-collapse">
+        <table class="w-full min-w-[980px] text-left border-collapse">
           <thead>
             <tr class="border-b border-slate-100 bg-slate-50/75 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
               <th class="py-3 px-4">Jadwal & Kode</th>
@@ -202,8 +202,23 @@
                   <span class="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/70 text-[10px] font-semibold">
                     🗂️ {{ sch.module?.name || 'Seluruh Modul' }}
                   </span>
-                  <span v-if="sch.menu?.name" class="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/70 text-[10px] font-semibold">
+                  <span
+                    v-if="sch.menu_scope === 'all'"
+                    class="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/70 text-[10px] font-semibold"
+                  >
+                    🌐 Semua Submenu ({{ sch.menus_count || 0 }})
+                  </span>
+                  <span
+                    v-else-if="(sch.menus_count || 0) > 0"
+                    class="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/70 text-[10px] font-semibold"
+                  >
+                    📌 {{ sch.menus_count }} Submenu
+                  </span>
+                  <span v-else-if="sch.menu?.name" class="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/70 text-[10px] font-semibold">
                     📌 {{ sch.menu.name }}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-md bg-slate-50 text-slate-600 border border-slate-200/70 text-[10px] font-semibold">
+                    🧪 {{ sch.test_cases_count || 0 }} TC
                   </span>
                 </div>
               </td>
@@ -214,11 +229,16 @@
                 </div>
               </td>
               <td class="py-3.5 px-4">
-                <div v-if="sch.tester" class="flex items-center space-x-1.5">
-                  <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-[10px]">
-                    {{ sch.tester.name[0] }}
-                  </span>
-                  <span class="font-medium text-slate-800">{{ sch.tester.name }}</span>
+                <div v-if="scheduleTesterNames(sch).length > 0" class="space-y-1">
+                  <div v-for="name in scheduleTesterNames(sch).slice(0, 2)" :key="name" class="flex items-center space-x-1.5">
+                    <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-[10px] shrink-0">
+                      {{ name[0] }}
+                    </span>
+                    <span class="font-medium text-slate-800 truncate">{{ name }}</span>
+                  </div>
+                  <div v-if="scheduleTesterNames(sch).length > 2" class="text-[10px] text-slate-400 font-semibold pl-6">
+                    +{{ scheduleTesterNames(sch).length - 2 }} tester lainnya
+                  </div>
                 </div>
                 <span v-else class="text-slate-400 italic">Belum Ditugaskan</span>
               </td>
@@ -400,40 +420,69 @@
             </div>
 
             <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">🗂️ Menu Utama (Modul)</label>
+              <label class="block text-xs font-bold text-slate-700 mb-1">🗂️ Modul <span class="text-red-500">*</span></label>
               <select
                 v-model="form.module_id"
                 @change="handleFormModuleChange"
-                :disabled="!form.application_id || formModulesLoading"
+                required
                 class="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                <option value="">{{ formModulesLoading ? 'Memuat modul...' : 'Seluruh Modul' }}</option>
+                <option value="" disabled>Pilih Modul</option>
                 <option v-for="mod in formModuleOptions" :key="mod.id" :value="mod.id">{{ mod.name }}</option>
               </select>
               <p v-if="form.application_id && !formModulesLoading && formModuleOptions.length === 0" class="mt-1 text-[10px] text-amber-700">
                 Belum ada modul aktif untuk aplikasi ini. Periksa Master Data Modul.
               </p>
             </div>
+          </div>
 
-            <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">
-                📌 Sub-Menu / Fitur
-                <span v-if="form.module_id" class="text-blue-600 font-semibold ml-1">({{ formMenuOptions.length }})</span>
-              </label>
-              <select
-                v-model="form.menu_id"
-                :disabled="!form.module_id || formMenusLoading"
-                class="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                <option value="">
-                  {{ formMenusLoading ? 'Memuat fitur...' : form.module_id ? 'Seluruh Sub-Menu' : 'Pilih Modul dahulu...' }}
-                </option>
-                <option v-for="mn in formMenuOptions" :key="mn.id" :value="mn.id">📌 {{ mn.name }} ({{ mn.code }})</option>
-              </select>
-              <p v-if="form.module_id && !formMenusLoading && formMenuOptions.length === 0" class="mt-1 text-[10px] text-amber-700">
-                Belum ada sub-menu aktif. Tambahkan atau aktifkan sub-menu melalui Master Data.
-              </p>
+          <!-- Cakupan Submenu Terpusat -->
+          <div class="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-bold text-slate-700">📌 Cakupan Submenu <span class="text-red-500">*</span></label>
+              <span class="text-[10px] font-bold text-blue-600">
+                {{ form.menu_scope === 'all' ? `${formMenuOptions.length} submenu` : `${form.menu_ids.length} dipilih` }}
+              </span>
             </div>
+            <div class="flex items-center space-x-4 text-xs font-semibold text-slate-700">
+              <label class="flex items-center space-x-1.5 cursor-pointer">
+                <input v-model="form.menu_scope" type="radio" value="all" class="text-blue-600" />
+                <span>Semua Submenu</span>
+              </label>
+              <label class="flex items-center space-x-1.5 cursor-pointer">
+                <input v-model="form.menu_scope" type="radio" value="selected" class="text-blue-600" />
+                <span>Submenu Tertentu</span>
+              </label>
+            </div>
+
+            <div v-if="form.menu_scope === 'selected'" class="rounded-lg border border-slate-200 bg-white">
+              <div class="flex items-center justify-between px-3 py-2 border-b border-slate-100">
+                <span class="text-[10px] font-bold text-slate-500 uppercase">Pilih Submenu ({{ form.menu_ids.length }})</span>
+                <div class="flex space-x-2">
+                  <button type="button" @click="selectAllMenus" class="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer">Pilih Semua</button>
+                  <button type="button" @click="form.menu_ids = []" class="text-[10px] font-bold text-slate-500 hover:underline cursor-pointer">Bersihkan</button>
+                </div>
+              </div>
+              <div class="max-h-36 overflow-y-auto p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                <label
+                  v-for="mn in formMenuOptions"
+                  :key="mn.id"
+                  class="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-[11px] text-slate-700"
+                >
+                  <input v-model="form.menu_ids" type="checkbox" :value="mn.id" class="rounded text-blue-600" />
+                  <span class="truncate">{{ mn.name }}</span>
+                </label>
+                <p v-if="form.module_id && !formMenusLoading && formMenuOptions.length === 0" class="col-span-full px-2 py-2 text-[10px] text-amber-700">
+                  Belum ada sub-menu aktif. Tambahkan atau aktifkan sub-menu melalui Master Data.
+                </p>
+                <p v-if="!form.module_id" class="col-span-full px-2 py-2 text-[10px] text-slate-400">
+                  Pilih modul dahulu untuk melihat daftar submenu.
+                </p>
+              </div>
+            </div>
+            <p v-else class="text-[10px] text-slate-500">
+              Semua submenu aktif pada modul ini akan dicakup jadwal. Perubahan master submenu setelah jadwal dibuat tidak mengubah cakupan yang tersimpan.
+            </p>
           </div>
 
           <div>
@@ -466,16 +515,27 @@
             </select>
           </div>
 
-          <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">Tester Penanggung Jawab</label>
-            <select
-              v-model="form.tester_id"
-              @change="checkTesterConflict"
-              class="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">Belum Ditugaskan</option>
-              <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
-            </select>
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 mb-1">Tester yang Ditugaskan <span class="text-red-500">*</span></label>
+            <div class="rounded-lg border border-slate-300 bg-white">
+              <div class="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
+                <span class="text-[10px] font-bold text-slate-500 uppercase">{{ form.tester_ids.length }} tester dipilih</span>
+                <div class="flex space-x-2">
+                  <button type="button" @click="form.tester_ids = users.map(u => u.id)" class="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer">Pilih Semua</button>
+                  <button type="button" @click="form.tester_ids = []" class="text-[10px] font-bold text-slate-500 hover:underline cursor-pointer">Bersihkan</button>
+                </div>
+              </div>
+              <div class="max-h-32 overflow-y-auto p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                <label
+                  v-for="u in users"
+                  :key="u.id"
+                  class="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-[11px] text-slate-700"
+                >
+                  <input v-model="form.tester_ids" type="checkbox" :value="u.id" @change="checkTesterConflict" class="rounded text-blue-600" />
+                  <span class="truncate">{{ u.name }}</span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -552,13 +612,17 @@
       size="lg"
       @close="showDetail = false"
     >
-      <div v-if="detailData" class="space-y-5 text-xs">
+      <LoadingSpinner v-if="detailLoading" text="Memuat detail jadwal..." />
+      <div v-else-if="detailData" class="space-y-5 text-xs">
         <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
           <div class="text-base font-bold text-slate-900">{{ detailData.title }}</div>
           <div class="flex flex-wrap gap-2">
             <Badge :value="detailData.status" />
             <Badge :value="detailData.priority" type="priority" />
             <span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">{{ detailData.testing_type }}</span>
+            <span class="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold">
+              {{ detailData.menu_scope === 'all' ? 'Semua Submenu' : `${detailData.menus_coverage?.length || 0} Submenu Terpilih` }}
+            </span>
           </div>
         </div>
 
@@ -569,7 +633,9 @@
           </div>
           <div>
             <span class="text-slate-500 block">Tester Bertugas:</span>
-            <span class="font-bold text-slate-800">{{ detailData.tester?.name || 'Belum Ditugaskan' }}</span>
+            <span class="font-bold text-slate-800">
+              {{ scheduleTesterNames(detailData).length > 0 ? scheduleTesterNames(detailData).join(', ') : 'Belum Ditugaskan' }}
+            </span>
           </div>
           <div>
             <span class="text-slate-500 block">Mulai:</span>
@@ -578,6 +644,97 @@
           <div>
             <span class="text-slate-500 block">Selesai:</span>
             <span class="font-bold text-slate-800">{{ formatDateTime(detailData.end_time) }}</span>
+          </div>
+        </div>
+
+        <!-- Cakupan Submenu & Progres per Submenu -->
+        <div v-if="detailData.menus_coverage?.length" class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 font-bold text-slate-700">
+            Cakupan Submenu ({{ detailData.menus_coverage.length }})
+          </div>
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
+              <thead class="sticky top-0 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase">
+                <tr>
+                  <th class="py-2 px-3">Submenu</th>
+                  <th class="py-2 px-3 text-center">Total TC</th>
+                  <th class="py-2 px-3 text-center text-emerald-600">PASS</th>
+                  <th class="py-2 px-3 text-center text-red-600">FAIL</th>
+                  <th class="py-2 px-3 text-center text-amber-600">PEND</th>
+                  <th class="py-2 px-3 text-center text-slate-500">NT</th>
+                  <th class="py-2 px-3 text-center">Belum</th>
+                  <th class="py-2 px-3 text-right">Progres</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-for="m in detailData.menus_coverage" :key="m.menu_id">
+                  <td class="py-2 px-3 font-semibold text-slate-800">{{ m.name }}</td>
+                  <td class="py-2 px-3 text-center font-bold">{{ m.total }}</td>
+                  <td class="py-2 px-3 text-center text-emerald-700 font-bold">{{ m.pass || 0 }}</td>
+                  <td class="py-2 px-3 text-center text-red-700 font-bold">{{ m.failed || 0 }}</td>
+                  <td class="py-2 px-3 text-center text-amber-700 font-bold">{{ m.pending || 0 }}</td>
+                  <td class="py-2 px-3 text-center text-slate-600 font-bold">{{ m.not_tested || 0 }}</td>
+                  <td class="py-2 px-3 text-center text-slate-400 font-bold">{{ m.untested || 0 }}</td>
+                  <td class="py-2 px-3 text-right">
+                    <span class="font-bold text-blue-600">{{ m.percentage }}%</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Cakupan Test Case (bisa dikurangi admin) -->
+        <div v-if="detailTestCases.length > 0" class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <span class="font-bold text-slate-700">Test Case dalam Jadwal ({{ detailTestCaseIds.length }} / {{ detailTestCases.length }})</span>
+            <button
+              v-if="hasFeatureAccess('update_schedule')"
+              @click="saveScheduleTestCases"
+              :disabled="savingTestCases"
+              class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold disabled:opacity-50 cursor-pointer"
+            >
+              {{ savingTestCases ? 'Menyimpan...' : 'Simpan Cakupan TC' }}
+            </button>
+          </div>
+          <div class="max-h-52 overflow-y-auto divide-y divide-slate-100">
+            <label
+              v-for="tc in detailTestCases"
+              :key="tc.id"
+              class="flex items-center space-x-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer"
+              :class="{ 'opacity-50': !detailTestCaseIds.includes(tc.id) }"
+            >
+              <input
+                type="checkbox"
+                :checked="detailTestCaseIds.includes(tc.id)"
+                :disabled="!hasFeatureAccess('update_schedule')"
+                @change="toggleDetailTestCase(tc.id)"
+                class="rounded text-blue-600"
+              />
+              <span class="font-mono font-bold text-blue-600 text-[11px]">{{ tc.test_case_code }}</span>
+              <span class="text-slate-700 truncate">{{ tc.title }}</span>
+              <span class="ml-auto shrink-0 text-[10px] text-slate-400">{{ tc.schedule_execution?.status || 'Belum' }}</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Riwayat Aktivitas -->
+        <div v-if="detailActivities.length > 0" class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 font-bold text-slate-700">
+            Riwayat Aktivitas ({{ detailActivities.length }})
+          </div>
+          <div class="max-h-56 overflow-y-auto divide-y divide-slate-100">
+            <div v-for="(act, idx) in detailActivities" :key="idx" class="px-3 py-2 flex items-start space-x-2.5">
+              <span class="mt-0.5 shrink-0">{{ act.type === 'execution' ? '🧪' : '📋' }}</span>
+              <div class="min-w-0 flex-1">
+                <div class="text-slate-800 leading-snug">{{ act.description }}</div>
+                <div class="text-[10px] text-slate-400 mt-0.5">
+                  {{ act.user || '-' }} · {{ formatDateTime(act.at) }}
+                  <span v-if="act.submenu"> · 📌 {{ act.submenu }}</span>
+                </div>
+              </div>
+              <Badge :value="act.result" />
+            </div>
           </div>
         </div>
 
@@ -625,17 +782,32 @@
           </div>
         </div>
         <div
-          v-else-if="detailData.status !== 'Completed' && detailData.status !== 'Cancelled' && hasFeatureAccess('execute_test')"
+          v-else-if="detailData.status !== 'Completed' && detailData.status !== 'Cancelled' && detailData.can_continue_qa && hasFeatureAccess('execute_test')"
           class="pt-2 flex justify-end"
         >
           <button
             @click="continueQaFromSchedule(detailData)"
             class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
           >
-            ▶ Lanjutkan Pengujian QA Sekarang
+            ▶ Mulai Eksekusi QA
           </button>
         </div>
       </div>
+    </Modal>
+
+    <!-- Panel Eksekusi QA Terpusat -->
+    <Modal
+      :show="showExecPanel"
+      :title="`Eksekusi QA: ${detailData?.title || ''}`"
+      :subtitle="detailData?.schedule_code"
+      size="xl"
+      @close="showExecPanel = false"
+    >
+      <QaExecutionPanel
+        v-if="showExecPanel && execScheduleId"
+        :schedule-id="execScheduleId"
+        @executed="onExecutionDone"
+      />
     </Modal>
 
     <!-- Delete Confirmation -->
@@ -653,7 +825,6 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import api from '../api';
 import { useAuth } from '../auth';
 import { showAlert } from '../dialog';
@@ -663,8 +834,8 @@ import ConfirmDialog from '../components/ConfirmDialog.vue';
 import EmptyState from '../components/EmptyState.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import OfficeSkylineBg from '../components/OfficeSkylineBg.vue';
+import QaExecutionPanel from '../components/QaExecutionPanel.vue';
 
-const router = useRouter();
 const { hasFeatureAccess } = useAuth();
 
 const isScheduleExpired = (sch) => {
@@ -679,13 +850,12 @@ const continueQaFromSchedule = (sch) => {
     void showAlert('Jadwal QA ini sudah melewati batas hari dan jam yang ditentukan sehingga tidak dapat dilanjutkan.', { title: 'Jadwal QA Terkunci' });
     return;
   }
+  if (sch.can_continue_qa === false) {
+    void showAlert('Jadwal ini belum dapat dikerjakan (belum dimulai, terkunci, atau Anda belum ditugaskan).', { title: 'Eksekusi Belum Dibuka' });
+    return;
+  }
   showDetail.value = false;
-  router.push({
-    path: '/test-cases',
-    query: {
-      application_id: sch.application_id || '',
-    },
-  });
+  openExecutionPanel(sch);
 };
 
 const activeView = ref('list');
@@ -727,9 +897,12 @@ const form = reactive({
   application_id: '',
   module_id: '',
   menu_id: '',
+  menu_scope: 'all',
+  menu_ids: [],
   testing_type: 'Daily',
   priority: 'Medium',
   tester_id: '',
+  tester_ids: [],
   status: 'Scheduled',
   start_time: '',
   end_time: '',
@@ -738,6 +911,13 @@ const form = reactive({
 
 const showDetail = ref(false);
 const detailData = ref(null);
+const detailLoading = ref(false);
+const detailTestCases = ref([]);
+const detailTestCaseIds = ref([]);
+const savingTestCases = ref(false);
+const detailActivities = ref([]);
+const showExecPanel = ref(false);
+const execScheduleId = ref(null);
 const showDeleteConfirm = ref(false);
 const scheduleToDelete = ref(null);
 
@@ -745,6 +925,14 @@ const formatDate = (str) => {
   if (!str) return '-';
   const d = new Date(str);
   return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const scheduleTesterNames = (sch) => {
+  const names = (sch.testers || []).map((t) => t.name);
+  if (sch.tester && !names.includes(sch.tester.name)) {
+    names.push(sch.tester.name);
+  }
+  return names;
 };
 
 const formatDateTime = (str) => {
@@ -832,6 +1020,8 @@ const changePage = (p) => {
 const handleFormAppChange = async () => {
   form.module_id = '';
   form.menu_id = '';
+  form.menu_scope = 'all';
+  form.menu_ids = [];
   formModuleOptions.value = [];
   formMenuOptions.value = [];
   if (!form.application_id) {
@@ -853,6 +1043,7 @@ const handleFormAppChange = async () => {
 
 const handleFormModuleChange = async () => {
   form.menu_id = '';
+  form.menu_ids = [];
   formMenuOptions.value = [];
   if (!form.module_id) {
     return;
@@ -874,8 +1065,12 @@ const handleFormModuleChange = async () => {
   }
 };
 
+const selectAllMenus = () => {
+  form.menu_ids = formMenuOptions.value.map((mn) => mn.id);
+};
+
 const checkTesterConflict = async () => {
-  if (!form.tester_id || !form.start_time || !form.end_time) {
+  if (form.tester_ids.length === 0 || !form.start_time || !form.end_time) {
     conflictWarning.value = false;
     conflictList.value = [];
     return;
@@ -883,7 +1078,7 @@ const checkTesterConflict = async () => {
   try {
     const res = await api.get('/schedules/check-conflict', {
       params: {
-        tester_id: form.tester_id,
+        tester_ids: form.tester_ids,
         start_time: toUtcIsoString(form.start_time),
         end_time: toUtcIsoString(form.end_time),
         exclude_id: currentId.value,
@@ -903,9 +1098,12 @@ const openCreateModal = async () => {
   await handleFormAppChange();
   form.module_id = '';
   form.menu_id = '';
+  form.menu_scope = 'all';
+  form.menu_ids = [];
   form.testing_type = 'Daily';
   form.priority = 'Medium';
   form.tester_id = '';
+  form.tester_ids = [];
   form.status = 'Scheduled';
   form.start_time = '';
   form.end_time = '';
@@ -924,10 +1122,19 @@ const openEditModal = async (sch) => {
   if (form.module_id) {
     await handleFormModuleChange();
   }
-  form.menu_id = sch.menu_id || '';
+  form.menu_scope = sch.menu_scope === 'all' ? 'all' : 'selected';
+  const pivotMenuIds = (sch.menus || []).map((m) => m.id);
+  form.menu_ids = pivotMenuIds.length > 0
+    ? pivotMenuIds
+    : (sch.menu_id ? [Number(sch.menu_id)] : []);
+  form.menu_id = form.menu_ids[0] || sch.menu_id || '';
   form.testing_type = sch.testing_type;
   form.priority = sch.priority;
-  form.tester_id = sch.tester_id || '';
+  const pivotTesterIds = (sch.testers || []).map((t) => t.id);
+  form.tester_ids = pivotTesterIds.length > 0
+    ? pivotTesterIds
+    : (sch.tester_id ? [Number(sch.tester_id)] : []);
+  form.tester_id = form.tester_ids[0] || sch.tester_id || '';
   form.status = sch.status;
   form.start_time = toLocalDateTimeInput(sch.start_time);
   form.end_time = toLocalDateTimeInput(sch.end_time);
@@ -944,6 +1151,11 @@ const saveSchedule = async () => {
   try {
     const scheduleData = {
       ...form,
+      menu_id: form.menu_scope === 'selected' ? (form.menu_ids[0] || '') : '',
+      tester_id: form.tester_ids[0] || '',
+      menu_scope: form.menu_scope,
+      menu_ids: form.menu_scope === 'selected' ? form.menu_ids : undefined,
+      tester_ids: form.tester_ids,
       start_time: toUtcIsoString(form.start_time),
       end_time: toUtcIsoString(form.end_time),
     };
@@ -963,9 +1175,73 @@ const saveSchedule = async () => {
   }
 };
 
-const openDetailModal = (sch) => {
+const fetchDetailExtras = async (scheduleId) => {
+  detailTestCases.value = [];
+  detailTestCaseIds.value = [];
+  detailActivities.value = [];
+  try {
+    const [tcRes, actRes] = await Promise.all([
+      api.get(`/schedules/${scheduleId}/test-cases`),
+      api.get(`/schedules/${scheduleId}/activities`),
+    ]);
+    detailTestCases.value = tcRes.data.test_cases || [];
+    detailTestCaseIds.value = detailTestCases.value.map((tc) => tc.id);
+    detailActivities.value = actRes.data.activities || [];
+  } catch (e) {}
+};
+
+const openDetailModal = async (sch) => {
   detailData.value = sch;
+  detailLoading.value = true;
   showDetail.value = true;
+  fetchDetailExtras(sch.id);
+  try {
+    const res = await api.get(`/schedules/${sch.id}`);
+    detailData.value = res.data.schedule;
+  } catch (e) {
+    // fallback ke data list bila detail gagal dimuat
+  } finally {
+    detailLoading.value = false;
+  }
+};
+
+const toggleDetailTestCase = (tcId) => {
+  const idx = detailTestCaseIds.value.indexOf(tcId);
+  if (idx === -1) {
+    detailTestCaseIds.value.push(tcId);
+  } else {
+    detailTestCaseIds.value.splice(idx, 1);
+  }
+};
+
+const saveScheduleTestCases = async () => {
+  if (!detailData.value?.id) return;
+  savingTestCases.value = true;
+  try {
+    await api.put(`/schedules/${detailData.value.id}/test-cases`, {
+      test_case_ids: detailTestCaseIds.value,
+    });
+    void showAlert('Cakupan test case jadwal berhasil diperbarui.', { title: 'Cakupan Tersimpan' });
+    fetchSchedules(pagination.current_page);
+  } catch (e) {
+    void showAlert(e.response?.data?.message || 'Gagal menyimpan cakupan test case.', { title: 'Penyimpanan Gagal' });
+  } finally {
+    savingTestCases.value = false;
+  }
+};
+
+const openExecutionPanel = (sch) => {
+  execScheduleId.value = sch.id;
+  showExecPanel.value = true;
+};
+
+const onExecutionDone = () => {
+  showExecPanel.value = false;
+  fetchSchedules(pagination.current_page);
+  fetchCalendar();
+  if (detailData.value?.id === execScheduleId.value) {
+    openDetailModal(detailData.value);
+  }
 };
 
 const confirmDelete = (sch) => {

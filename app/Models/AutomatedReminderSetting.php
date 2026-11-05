@@ -65,4 +65,32 @@ class AutomatedReminderSetting extends Model
             ],
         ]);
     }
+
+    /**
+     * Kutipan motivasi ternormalisasi. Mendukung entri string polos maupun
+     * objek {text, author} (legacy string tetap didukung).
+     *
+     * @return array<int, array{text: string, author: ?string}>
+     */
+    public function normalizedMotivations(): array
+    {
+        return collect($this->daily_motivations ?? [])
+            ->map(function ($entry): ?array {
+                if (is_array($entry)) {
+                    $text = trim((string) ($entry['text'] ?? ''));
+
+                    return $text === '' ? null : [
+                        'text' => $text,
+                        'author' => isset($entry['author']) ? trim((string) $entry['author']) ?: null : null,
+                    ];
+                }
+
+                $text = trim((string) $entry);
+
+                return $text === '' ? null : ['text' => $text, 'author' => null];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
 }

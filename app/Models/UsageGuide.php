@@ -14,6 +14,7 @@ class UsageGuide extends Model
         'guide_code',
         'title',
         'menu_name',
+        'menu_path',
         'category',
         'menu_purpose',
         'menu_function',

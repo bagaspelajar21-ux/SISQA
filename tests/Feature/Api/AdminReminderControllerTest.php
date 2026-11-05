@@ -77,6 +77,7 @@ class AdminReminderControllerTest extends TestCase
 
     public function test_admin_schedules_reminder_and_due_command_delivers_it(): void
     {
+        $this->disableAutomatedReminders();
         $admin = User::factory()->create(['role' => 'admin']);
         $recipient = User::factory()->create(['role' => 'user']);
         Sanctum::actingAs($admin);
@@ -107,6 +108,7 @@ class AdminReminderControllerTest extends TestCase
 
     public function test_due_schedule_sends_start_and_end_notifications_once_and_marks_it_overdue(): void
     {
+        $this->disableAutomatedReminders();
         $this->freezeTime();
         $tester = User::factory()->create(['role' => 'user']);
         $application = Application::create([
@@ -135,6 +137,50 @@ class AdminReminderControllerTest extends TestCase
         $this->artisan('notifications:dispatch-due')->assertSuccessful();
 
         $this->assertSame(2, $tester->notifications()->count());
+    }
+
+    public function test_due_schedule_notifies_all_assigned_testers(): void
+    {
+        $this->disableAutomatedReminders();
+        $this->freezeTime();
+        $testerA = User::factory()->create(['role' => 'user']);
+        $testerB = User::factory()->create(['role' => 'user']);
+        $bystander = User::factory()->create(['role' => 'user']);
+        $application = Application::create([
+            'name' => 'Aplikasi QA',
+            'code' => 'APP-QA-MULTI',
+        ]);
+        $schedule = QaSchedule::create([
+            'schedule_code' => 'SCH-QA-MULTI',
+            'title' => 'Jadwal multi tester',
+            'application_id' => $application->id,
+            'tester_id' => $testerA->id,
+            'start_time' => now()->subHours(2),
+            'end_time' => now()->addHour(),
+            'target_test_cases_count' => 0,
+            'priority' => 'Medium',
+            'status' => 'In Progress',
+        ]);
+        $schedule->testers()->sync([$testerA->id, $testerB->id]);
+
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+
+        $this->assertSame(1, $testerA->notifications()->count());
+        $this->assertSame(1, $testerB->notifications()->count());
+        $this->assertSame(0, $bystander->notifications()->count());
+    }
+
+    public function test_automated_reminder_still_dispatches_when_cron_is_late(): void
+    {
+        $user = User::factory()->create(['role' => 'user']);
+        // Cron terlambat 45 menit — reminder tetap terkirim sekali (catch-up).
+        $this->travelTo(Carbon::parse('2026-11-02 08:47:00', 'Asia/Jakarta'));
+
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+        $this->artisan('notifications:dispatch-due')->assertSuccessful();
+
+        $this->assertSame(1, $user->notifications()->count());
+        $this->assertDatabaseCount('automated_reminder_dispatches', 1);
     }
 
     public function test_non_admin_cannot_create_a_reminder(): void
@@ -240,6 +286,8 @@ class AdminReminderControllerTest extends TestCase
 
     public function test_dispatches_weekly_report_every_saturday_and_monthly_report_only_when_enabled(): void
     {
+        // Matikan pengingat QA harian agar catch-up tidak ikut terkirim.
+        AutomatedReminderSetting::current()->update(['qa_enabled' => false]);
         $user = User::factory()->create(['role' => 'user']);
         $this->travelTo(Carbon::parse('2026-11-07 16:02:00', 'Asia/Jakarta'));
 
@@ -271,5 +319,16 @@ class AdminReminderControllerTest extends TestCase
 
         $this->assertSame(0, $user->notifications()->count());
         $this->assertDatabaseCount('automated_reminder_dispatches', 0);
+    }
+
+    private function disableAutomatedReminders(): void
+    {
+        AutomatedReminderSetting::current()->update([
+            'qa_enabled' => false,
+            'daily_report_enabled' => false,
+            'weekly_report_enabled' => false,
+            'monthly_report_enabled' => false,
+            'motivation_enabled' => false,
+        ]);
     }
 }
