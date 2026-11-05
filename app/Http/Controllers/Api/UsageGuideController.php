@@ -46,8 +46,8 @@ class UsageGuideController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('menu_name', 'like', "%{$search}%")
-                  ->orWhere('guide_code', 'like', "%{$search}%");
+                    ->orWhere('menu_name', 'like', "%{$search}%")
+                    ->orWhere('guide_code', 'like', "%{$search}%");
             });
         }
 
@@ -65,6 +65,7 @@ class UsageGuideController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'menu_name' => 'required|string|max:255',
+            'menu_path' => 'nullable|string|max:100',
             'category' => 'nullable|string|max:100',
             'menu_purpose' => 'nullable|string',
             'menu_function' => 'nullable|string',
@@ -82,7 +83,7 @@ class UsageGuideController extends Controller
 
         $prefix = 'GUIDE';
         $count = UsageGuide::count();
-        $validated['guide_code'] = sprintf("%s-%04d", $prefix, $count + 1);
+        $validated['guide_code'] = sprintf('%s-%04d', $prefix, $count + 1);
         $validated['created_by'] = $user->id;
         $validated['version'] = $validated['version'] ?? '1.0';
         $validated['observation_status'] = 'Belum Diamati';
@@ -92,7 +93,7 @@ class UsageGuideController extends Controller
 
         $guide = UsageGuide::create($validated);
 
-        if (!empty($stepsData)) {
+        if (! empty($stepsData)) {
             foreach ($stepsData as $s) {
                 $s['usage_guide_id'] = $guide->id;
                 UsageGuideStep::create($s);
@@ -136,6 +137,7 @@ class UsageGuideController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'menu_name' => 'required|string|max:255',
+            'menu_path' => 'nullable|string|max:100',
             'category' => 'nullable|string|max:100',
             'menu_purpose' => 'nullable|string',
             'menu_function' => 'nullable|string',
