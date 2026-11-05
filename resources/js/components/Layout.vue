@@ -593,19 +593,23 @@
         @click.self="showDailyMotivation = false"
       >
         <section
-          class="relative max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-blue-300/60 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-1 shadow-[0_30px_100px_-20px_rgba(29,78,216,0.8)]"
+          class="relative max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-white/30 bg-gradient-to-br p-1 shadow-[0_30px_100px_-20px_rgba(15,23,42,0.8)]"
+          :class="motivationThemeStyles.card"
           role="dialog"
           aria-modal="true"
           aria-labelledby="daily-motivation-title"
         >
-          <div class="relative overflow-hidden rounded-[1.8rem] bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 px-6 pb-6 pt-6 text-white sm:px-10 sm:pb-10 sm:pt-8">
+          <div class="relative overflow-hidden rounded-[1.8rem] bg-gradient-to-br px-6 pb-6 pt-6 text-white sm:px-10 sm:pb-10 sm:pt-8" :class="motivationThemeStyles.card">
             <div class="pointer-events-none absolute -right-10 -top-12 h-56 w-56 rounded-full border-[22px] border-white/10"></div>
             <div class="pointer-events-none absolute -bottom-16 -left-12 h-48 w-48 rounded-full bg-cyan-300/15 blur-2xl"></div>
             <div class="relative z-10 flex items-start justify-between gap-4">
               <div>
-                <span class="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-100">
-                  <span class="h-2 w-2 rounded-full bg-amber-300"></span>
-                  Semangat hari ini
+                <span
+                  class="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.18em]"
+                  :class="motivationThemeStyles.badge"
+                >
+                  <span class="h-2 w-2 rounded-full" :class="motivationThemeStyles.dot"></span>
+                  {{ dailyMotivation.occasion ? `Selamat ${dailyMotivation.occasion}` : 'Semangat hari ini' }}
                 </span>
                 <h2 id="daily-motivation-title" class="mt-5 text-2xl font-black leading-tight sm:text-3xl">
                   Halo, {{ currentUser?.name?.split(' ')?.[0] || 'QA' }}!
@@ -629,7 +633,7 @@
                 class="max-h-72 w-full bg-blue-50 object-cover sm:max-h-80"
               />
               <div class="px-6 py-7 sm:px-10 sm:py-9">
-                <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-orange-400 text-3xl text-white shadow-md">
+                <div class="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br text-3xl text-white shadow-md" :class="motivationThemeStyles.quoteIcon">
                   “
                 </div>
                 <p class="text-lg font-extrabold leading-relaxed sm:text-2xl">
@@ -643,15 +647,19 @@
                   <span v-if="dailyMotivation.quoteTotal > 1" class="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700">
                     Kutipan {{ (dailyMotivation.quoteIndex ?? 0) + 1 }}/{{ dailyMotivation.quoteTotal }}
                   </span>
+                  <span v-if="dailyMotivation.occasion" class="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700 normal-case tracking-normal">
+                    🎉 Hari Libur
+                  </span>
                 </div>
               </div>
             </div>
 
             <div class="relative z-10 mt-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-              <span class="text-xs font-semibold leading-relaxed text-blue-100/80 sm:text-sm">Satu langkah QA hari ini, kualitas lebih baik esok.</span>
+              <span class="text-xs font-semibold leading-relaxed sm:text-sm" :class="motivationThemeStyles.footer">Satu langkah QA hari ini, kualitas lebih baik esok.</span>
               <button
                 type="button"
-                class="shrink-0 rounded-xl bg-white px-5 py-3 text-sm font-extrabold text-blue-800 shadow-lg transition hover:bg-blue-50"
+                class="shrink-0 rounded-xl bg-white px-5 py-3 text-sm font-extrabold shadow-lg transition"
+                :class="[motivationThemeStyles.cta, motivationThemeStyles.ctaHover]"
                 @click="showDailyMotivation = false"
               >
                 Mulai bekerja
@@ -689,7 +697,72 @@ const masterDropdownOpen = ref(true);
 const showGuideModal = ref(false);
 const showLogoutConfirm = ref(false);
 const showDailyMotivation = ref(false);
-const dailyMotivation = ref({ message: '', author: null, quoteIndex: null, quoteTotal: 0, date: '', imageUrl: null });
+const dailyMotivation = ref({ message: '', author: null, quoteIndex: null, quoteTotal: 0, date: '', imageUrl: null, occasion: null, theme: 'umum' });
+
+const motivationThemeStyles = computed(() => {
+  switch (dailyMotivation.value.theme) {
+    case 'nasional':
+      return {
+        card: 'from-red-600 via-rose-700 to-red-800',
+        badge: 'border-red-200/40 bg-red-400/15 text-red-100',
+        dot: 'bg-red-300',
+        quoteIcon: 'from-red-300 to-rose-400',
+        cta: 'text-red-800',
+        ctaHover: 'hover:bg-red-50',
+        footer: 'text-red-100/80',
+      };
+    case 'islam':
+      return {
+        card: 'from-emerald-700 via-teal-800 to-emerald-900',
+        badge: 'border-emerald-200/40 bg-emerald-400/15 text-emerald-100',
+        dot: 'bg-emerald-300',
+        quoteIcon: 'from-emerald-300 to-teal-400',
+        cta: 'text-emerald-900',
+        ctaHover: 'hover:bg-emerald-50',
+        footer: 'text-emerald-100/80',
+      };
+    case 'kristen':
+      return {
+        card: 'from-indigo-600 via-blue-700 to-indigo-800',
+        badge: 'border-indigo-200/40 bg-indigo-400/15 text-indigo-100',
+        dot: 'bg-indigo-300',
+        quoteIcon: 'from-indigo-300 to-blue-400',
+        cta: 'text-indigo-900',
+        ctaHover: 'hover:bg-indigo-50',
+        footer: 'text-indigo-100/80',
+      };
+    case 'hindu':
+      return {
+        card: 'from-orange-600 via-amber-700 to-orange-800',
+        badge: 'border-orange-200/40 bg-orange-400/15 text-orange-100',
+        dot: 'bg-orange-300',
+        quoteIcon: 'from-orange-300 to-amber-400',
+        cta: 'text-orange-900',
+        ctaHover: 'hover:bg-orange-50',
+        footer: 'text-orange-100/80',
+      };
+    case 'buddha':
+      return {
+        card: 'from-amber-600 via-yellow-700 to-amber-800',
+        badge: 'border-amber-200/40 bg-amber-400/15 text-amber-100',
+        dot: 'bg-amber-300',
+        quoteIcon: 'from-amber-300 to-yellow-400',
+        cta: 'text-amber-900',
+        ctaHover: 'hover:bg-amber-50',
+        footer: 'text-amber-100/80',
+      };
+    default:
+      return {
+        card: 'from-blue-600 via-blue-700 to-indigo-800',
+        badge: 'border-white/20 bg-white/10 text-blue-100',
+        dot: 'bg-amber-300',
+        quoteIcon: 'from-amber-300 to-orange-400',
+        cta: 'text-blue-800',
+        ctaHover: 'hover:bg-blue-50',
+        footer: 'text-blue-100/80',
+      };
+  }
+});
 const dbGuide = ref(null);
 
 const toggleSidebar = () => {
@@ -1230,6 +1303,8 @@ const fetchDailyMotivation = async () => {
       quoteIndex: response.data.quote_index,
       quoteTotal: response.data.quote_total || 0,
       imageUrl: response.data.image_url,
+      occasion: response.data.occasion || null,
+      theme: response.data.theme || 'umum',
       date: new Date(`${response.data.date}T00:00:00+07:00`).toLocaleDateString('id-ID', {
         timeZone: 'Asia/Jakarta',
         weekday: 'long',
