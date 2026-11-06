@@ -9,6 +9,7 @@ use App\Models\QaSchedule;
 use App\Models\TestCase;
 use App\Models\TestExecution;
 use App\Services\QaScheduleLockService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -209,38 +210,118 @@ class QaScheduleController extends Controller
 
         $menuIds = $this->resolveMenuIds($request, $validated);
         $testerIds = $this->resolveTesterIds($request, $validated);
-        $testCaseIds = $this->resolveTestCaseIds($request, $validated, null, $menuIds);
+        $testCaseIds = $this->resolveTestCaseIds(
+            $request,
+            $validated,
+            null,
+            $menuIds
+        );
 
-        // Jadwal terpusat mewajibkan minimal satu tester; payload lama
-        // tanpa field cakupan tetap boleh tanpa tester (kompatibilitas).
-        $usesCoverageFields = $request->has('menu_scope') || $request->has('menu_ids') || $request->has('tester_ids');
+        // Jadwal terpusat mewajibkan minimal satu tester.
+        // Payload lama tanpa field cakupan tetap didukung.
+        $usesCoverageFields = $request->has('menu_scope')
+            || $request->has('menu_ids')
+            || $request->has('tester_ids');
+
         if ($testerIds === [] && $usesCoverageFields) {
             throw ValidationException::withMessages([
-                'tester_ids' => ['Minimal satu tester harus ditugaskan pada jadwal QA.'],
+                'tester_ids' => [
+                    'Minimal satu tester harus ditugaskan pada jadwal QA.',
+                ],
             ]);
         }
 
-        // Auto-generate code
-        $yearMonth = date('Ym');
-        $count = QaSchedule::where('schedule_code', 'like', "SCH-{$yearMonth}-%")->count();
-        $validated['schedule_code'] = sprintf('SCH-%s-%03d', $yearMonth, $count + 1);
+        // Persiapan data jadwal.
+        $yearMonth = now()->format('Ym');
+        $prefix = "SCH-{$yearMonth}-";
+
         $validated['status'] = $validated['status'] ?? 'Scheduled';
-        $validated['tester_id'] = $testerIds[0] ?? ($validated['tester_id'] ?? null);
-        unset($validated['menu_ids'], $validated['tester_ids'], $validated['test_case_ids']);
+        $validated['tester_id'] = $testerIds[0]
+            ?? ($validated['tester_id'] ?? null);
+
+        unset(
+            $validated['menu_ids'],
+            $validated['tester_ids'],
+            $validated['test_case_ids']
+        );
 
         if (empty($validated['target_test_cases_count'])) {
             $validated['target_test_cases_count'] = count($testCaseIds);
         }
 
-        $schedule = DB::transaction(function () use ($validated, $menuIds, $testerIds, $testCaseIds) {
-            $schedule = QaSchedule::create($validated);
-            $schedule->menus()->sync($menuIds);
-            $schedule->testers()->sync($testerIds);
-            $schedule->testCases()->sync($testCaseIds);
+        // Simpan jadwal dengan percobaan ulang jika kode jadwal bentrok.
+        $schedule = null;
+        $maxAttempts = 5;
 
-            return $schedule;
-        });
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $schedule = DB::transaction(function () use (
+                    $validated,
+                    $menuIds,
+                    $testerIds,
+                    $testCaseIds,
+                    $prefix
+                ) {
+                    // Ambil kode jadwal terbesar pada bulan berjalan.
+                    $existingCodes = QaSchedule::where(
+                        'schedule_code',
+                        'like',
+                        "{$prefix}%"
+                    )->pluck('schedule_code');
 
+                    $lastNumber = $existingCodes->map(
+                        function ($code) use ($prefix) {
+                            return (int) substr(
+                                $code,
+                                strlen($prefix)
+                            );
+                        }
+                    )->max() ?? 0;
+
+                    // Buat kode jadwal berikutnya.
+                    $data = $validated;
+
+                    $data['schedule_code'] = sprintf(
+                        'SCH-%s-%03d',
+                        now()->format('Ym'),
+                        $lastNumber + 1
+                    );
+
+                    // Simpan data utama jadwal.
+                    $newSchedule = QaSchedule::create($data);
+
+                    // Sinkronisasi submenu, tester, dan test case.
+                    $newSchedule->menus()->sync($menuIds);
+                    $newSchedule->testers()->sync($testerIds);
+                    $newSchedule->testCases()->sync($testCaseIds);
+
+                    return $newSchedule;
+                });
+
+                // Berhasil menyimpan jadwal.
+                break;
+
+            } catch (QueryException $e) {
+                // Periksa apakah terjadi duplikasi kode jadwal.
+                $isDuplicateScheduleCode =
+                    ($e->errorInfo[1] ?? null) === 1062
+                    && str_contains(
+                        $e->getMessage(),
+                        'qa_schedules_schedule_code_unique'
+                    );
+
+                // Jika bukan duplikasi kode atau sudah mencapai batas percobaan,
+                // tampilkan error aslinya.
+                if (
+                    ! $isDuplicateScheduleCode
+                    || $attempt === $maxAttempts
+                ) {
+                    throw $e;
+                }
+            }
+        }
+
+        // Catat aktivitas pembuatan jadwal.
         ActivityLog::record(
             'schedule_created',
             'Jadwal QA',
@@ -251,9 +332,17 @@ class QaScheduleController extends Controller
             $validated
         );
 
+        // Kirim respons ke frontend.
         return response()->json([
             'message' => 'Jadwal QA berhasil dibuat.',
-            'schedule' => $schedule->load(['application', 'module', 'menus', 'tester', 'testers', 'testCases']),
+            'schedule' => $schedule->load([
+                'application',
+                'module',
+                'menus',
+                'tester',
+                'testers',
+                'testCases',
+            ]),
         ], 201);
     }
 
