@@ -152,8 +152,24 @@ class TestCaseController extends Controller
 
         // Auto-generate test case code
         $prefix = 'TC';
-        $count = TestCase::count();
-        $validated['test_case_code'] = sprintf('%s-%04d', $prefix, $count + 1);
+
+        $existingCodes = TestCase::withTrashed()
+            ->where('test_case_code', 'like', "{$prefix}-%")
+            ->pluck('test_case_code');
+
+        $lastNumber = $existingCodes->map(function ($code) {
+            if (preg_match('/^TC-(\d+)$/', $code, $matches)) {
+                return (int) $matches[1];
+            }
+
+            return 0;
+        })->max() ?? 0;
+
+        $validated['test_case_code'] = sprintf(
+            '%s-%04d',
+            $prefix,
+            $lastNumber + 1
+        );
         $validated['is_active'] = $validated['is_active'] ?? true;
 
         $scheduleIds = $validated['qa_schedule_ids'] ?? null;
@@ -604,9 +620,22 @@ class TestCaseController extends Controller
 
             $priority = in_array($priorityRaw, ['Urgent', 'High', 'Medium', 'Low']) ? $priorityRaw : 'Medium';
 
-            $nextNum = (int) TestCase::max('id') + 1;
+            $existingCodes = TestCase::withTrashed()
+                ->where('test_case_code', 'like', 'TC-%')
+                ->pluck('test_case_code');
+
+            $lastNumber = $existingCodes->map(function ($code) {
+                if (preg_match('/^TC-(\d+)$/', $code, $matches)) {
+                    return (int) $matches[1];
+                }
+
+                return 0;
+            })->max() ?? 0;
+
+            $nextNum = $lastNumber + 1;
             $tcCode = sprintf('TC-%04d', $nextNum);
-            while (TestCase::where('test_case_code', $tcCode)->exists()) {
+
+            while (TestCase::withTrashed()->where('test_case_code', $tcCode)->exists()) {
                 $nextNum++;
                 $tcCode = sprintf('TC-%04d', $nextNum);
             }
