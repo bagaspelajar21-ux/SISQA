@@ -263,11 +263,9 @@ class QaScheduleController extends Controller
                     $prefix
                 ) {
                     // Ambil kode jadwal terbesar pada bulan berjalan.
-                    $existingCodes = QaSchedule::where(
-                        'schedule_code',
-                        'like',
-                        "{$prefix}%"
-                    )->pluck('schedule_code');
+                  $existingCodes = QaSchedule::withTrashed()
+    ->where('schedule_code', 'like', "{$prefix}%")
+    ->pluck('schedule_code');
 
                     $lastNumber = $existingCodes->map(
                         function ($code) use ($prefix) {
