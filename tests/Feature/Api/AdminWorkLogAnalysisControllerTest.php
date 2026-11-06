@@ -142,7 +142,7 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
         }
     }
 
-    public function test_analyzes_filtered_work_logs_without_sending_user_names_to_openai(): void
+    public function test_analyzes_filtered_work_logs_without_sending_user_names_to_gemini(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $user = User::factory()->create(['name' => 'Nama Rahasia']);
@@ -151,13 +151,13 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             ['work_date' => '2026-11-01', 'description' => 'Catatan di luar periode'],
         ]);
         Sanctum::actingAs($admin);
-        config()->set('services.openai.key', 'test-openai-key');
-        config()->set('services.openai.model', 'gpt-4o-mini');
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-2.5-flash');
         Http::preventStrayRequests();
         Http::fake([
-            'api.openai.com/v1/chat/completions' => Http::response([
-                'choices' => [
-                    ['message' => ['content' => 'Ringkasan pekerjaan QA.']],
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [
+                    ['content' => ['parts' => [['text' => 'Ringkasan pekerjaan QA.']]]],
                 ],
             ]),
         ]);
@@ -169,15 +169,16 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('analysis', 'Ringkasan pekerjaan QA.');
 
-        Http::assertSent(fn (ClientRequest $request): bool => $request->url() === 'https://api.openai.com/v1/chat/completions'
-            && $request->hasHeader('Authorization', 'Bearer test-openai-key')
-            && str_contains($request->data()['messages'][1]['content'], 'Menguji modul pembayaran')
-            && ! str_contains($request->data()['messages'][1]['content'], 'Nama Rahasia')
-            && ! str_contains($request->data()['messages'][1]['content'], '"user_id"')
-            && ! str_contains($request->data()['messages'][1]['content'], 'Catatan di luar periode'));
+        Http::assertSent(fn (ClientRequest $request): bool => str_contains($request->url(), 'generativelanguage.googleapis.com')
+            && str_ends_with($request->url(), ':generateContent')
+            && $request->hasHeader('x-goog-api-key', 'test-gemini-key')
+            && str_contains($request->data()['contents'][0]['parts'][0]['text'], 'Menguji modul pembayaran')
+            && ! str_contains($request->data()['contents'][0]['parts'][0]['text'], 'Nama Rahasia')
+            && ! str_contains($request->data()['contents'][0]['parts'][0]['text'], '"user_id"')
+            && ! str_contains($request->data()['contents'][0]['parts'][0]['text'], 'Catatan di luar periode'));
     }
 
-    public function test_returns_503_when_openai_is_not_configured(): void
+    public function test_returns_503_when_gemini_is_not_configured(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $user = User::factory()->create();
@@ -186,7 +187,7 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             'description' => 'Menguji fitur QA',
         ]);
         Sanctum::actingAs($admin);
-        config()->set('services.openai.key', null);
+        config()->set('services.gemini.key', null);
         Http::preventStrayRequests();
 
         $this->postJson('/api/admin/work-log-analysis/ai', [
@@ -194,10 +195,10 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             'end_date' => '2026-10-10',
         ])
             ->assertServiceUnavailable()
-            ->assertJsonPath('message', 'Fitur AI belum dikonfigurasi. Admin perlu mengatur OPENAI_API_KEY di server.');
+            ->assertJsonPath('message', 'Fitur AI belum dikonfigurasi. Admin perlu mengatur GEMINI_API_KEY di server.');
     }
 
-    public function test_returns_422_without_calling_openai_when_more_than_100_logs_are_selected(): void
+    public function test_returns_422_without_calling_gemini_when_more_than_100_logs_are_selected(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $user = User::factory()->create();
@@ -206,7 +207,7 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             'description' => 'Menguji fitur QA',
         ]));
         Sanctum::actingAs($admin);
-        config()->set('services.openai.key', 'test-openai-key');
+        config()->set('services.gemini.key', 'test-gemini-key');
         Http::preventStrayRequests();
 
         $this->postJson('/api/admin/work-log-analysis/ai', [
@@ -217,7 +218,7 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             ->assertJsonPath('message', 'Analisis AI dibatasi maksimal 100 catatan. Persempit periode atau pilih satu pengguna.');
     }
 
-    public function test_returns_502_when_openai_rejects_the_analysis_request(): void
+    public function test_returns_502_when_gemini_rejects_the_analysis_request(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $user = User::factory()->create();
@@ -226,10 +227,10 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             'description' => 'Menguji fitur QA',
         ]);
         Sanctum::actingAs($admin);
-        config()->set('services.openai.key', 'test-openai-key');
+        config()->set('services.gemini.key', 'test-gemini-key');
         Http::preventStrayRequests();
         Http::fake([
-            'api.openai.com/v1/chat/completions' => Http::response(['error' => 'Unavailable'], 500),
+            'generativelanguage.googleapis.com/*' => Http::response(['error' => 'Unavailable'], 500),
         ]);
 
         $this->postJson('/api/admin/work-log-analysis/ai', [
@@ -237,10 +238,10 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             'end_date' => '2026-10-10',
         ])
             ->assertStatus(502)
-            ->assertJsonPath('message', 'Layanan AI gagal memproses analisis. Silakan coba kembali beberapa saat lagi.');
+            ->assertJsonPath('message', 'Layanan AI gagal memproses analisis. Periksa konfigurasi API Gemini.');
     }
 
-    public function test_returns_502_when_openai_cannot_be_reached(): void
+    public function test_returns_502_when_gemini_cannot_be_reached(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $user = User::factory()->create();
@@ -249,10 +250,10 @@ class AdminWorkLogAnalysisControllerTest extends TestCase
             'description' => 'Menguji fitur QA',
         ]);
         Sanctum::actingAs($admin);
-        config()->set('services.openai.key', 'test-openai-key');
+        config()->set('services.gemini.key', 'test-gemini-key');
         Http::preventStrayRequests();
         Http::fake([
-            'api.openai.com/v1/chat/completions' => Http::failedConnection(),
+            'generativelanguage.googleapis.com/*' => Http::failedConnection(),
         ]);
 
         $this->postJson('/api/admin/work-log-analysis/ai', [
